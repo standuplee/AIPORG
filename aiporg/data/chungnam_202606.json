@@ -1,0 +1,546 @@
+{
+  "total_volume": 38724,
+  "prev_change_pct": 12.4,
+  "subject_volumes": {
+    "충남도정": 21380,
+    "충남지사": 9842
+  },
+  "subject_changes": {
+    "충남도정": 8.7,
+    "충남지사": 18.3
+  },
+  "positive_ratio": 44.8,
+  "channel_share": {
+    "뉴스기사": 46.0,
+    "커뮤니티": 24.0,
+    "블로그": 18.0,
+    "유튜브": 8.0,
+    "공공RSS": 4.0
+  },
+  "daily_volume": {
+    "2026-06-01": 1179,
+    "2026-06-02": 1038,
+    "2026-06-03": 1096,
+    "2026-06-04": 1084,
+    "2026-06-05": 1202,
+    "2026-06-06": 891,
+    "2026-06-07": 928,
+    "2026-06-08": 1210,
+    "2026-06-09": 1299,
+    "2026-06-10": 1195,
+    "2026-06-11": 1245,
+    "2026-06-12": 1321,
+    "2026-06-13": 896,
+    "2026-06-14": 930,
+    "2026-06-15": 2127,
+    "2026-06-16": 2084,
+    "2026-06-17": 1950,
+    "2026-06-18": 2102,
+    "2026-06-19": 2193,
+    "2026-06-20": 1396,
+    "2026-06-21": 1644,
+    "2026-06-22": 1193,
+    "2026-06-23": 1111,
+    "2026-06-24": 1068,
+    "2026-06-25": 1252,
+    "2026-06-26": 1110,
+    "2026-06-27": 790,
+    "2026-06-28": 791,
+    "2026-06-29": 1227,
+    "2026-06-30": 1172
+  },
+  "top_issues": [
+    {
+      "rank": 1,
+      "category": "행정",
+      "title": "대전·충남 행정통합 특별법 국회 처리 촉각",
+      "volume": 8420,
+      "change_pct": 34.0,
+      "sentiment": "중립",
+      "evidence": [
+        "https://search.naver.com/search.naver?where=news&query=대전충남+행정통합+특별법"
+      ],
+      "ai_comment": "행정통합 특별법의 국회 처리 지연으로 찬반 양측의 온라인 언급이 동시 확대됨"
+    },
+    {
+      "rank": 2,
+      "category": "선거",
+      "title": "6·3 지방선거 충남도지사 공천 신청 결과 발표",
+      "volume": 6180,
+      "change_pct": 28.0,
+      "sentiment": "중립",
+      "evidence": [
+        "https://search.naver.com/search.naver?where=news&query=충남도지사+공천"
+      ],
+      "ai_comment": "6·3 지방선거를 앞두고 공천 신청 결과에 대한 관심이 집중됨"
+    },
+    {
+      "rank": 3,
+      "category": "경제",
+      "title": "충남 AI 데이터센터 아산 음봉 2조5천억 투자 유치",
+      "volume": 4920,
+      "change_pct": 51.0,
+      "sentiment": "긍정",
+      "evidence": [
+        "https://search.naver.com/search.naver?where=news&query=아산+AI데이터센터+투자"
+      ],
+      "ai_comment": "대규모 투자 유치 발표로 지역 경제 기대감이 크게 상승함"
+    },
+    {
+      "rank": 4,
+      "category": "산업",
+      "title": "천안·아산 K-AI 특화시범도시 공동 유치 추진",
+      "volume": 3840,
+      "change_pct": 22.0,
+      "sentiment": "긍정",
+      "evidence": [
+        "https://search.naver.com/search.naver?where=news&query=K-AI+특화도시+천안아산"
+      ],
+      "ai_comment": "AI 특화도시 공동 유치 추진으로 산업 기반 확충 기대가 형성됨"
+    },
+    {
+      "rank": 5,
+      "category": "산업",
+      "title": "삼성전자 천안 반도체 패키징 증설 본격화",
+      "volume": 3210,
+      "change_pct": 18.0,
+      "sentiment": "긍정",
+      "evidence": [
+        "https://search.naver.com/search.naver?where=news&query=삼성전자+천안+반도체+패키징"
+      ],
+      "ai_comment": "반도체 패키징 증설로 지역 고용·투자 확대 전망이 부각됨"
+    },
+    {
+      "rank": 6,
+      "category": "도정",
+      "title": "충남도 2026 주요업무계획 발표 및 도민 반응",
+      "volume": 2780,
+      "change_pct": 9.0,
+      "sentiment": "중립",
+      "evidence": [
+        "https://search.naver.com/search.naver?where=news&query=충남도+2026+주요업무계획"
+      ],
+      "ai_comment": "연간 주요업무계획 발표에 대한 도민의 관심과 평가가 이어짐"
+    },
+    {
+      "rank": 7,
+      "category": "환경",
+      "title": "충남 화력발전소 탈석탄·탄소중립 전환 이슈",
+      "volume": 2340,
+      "change_pct": 5.0,
+      "sentiment": "혼재",
+      "evidence": [
+        "https://search.naver.com/search.naver?where=news&query=충남+화력발전+탈석탄"
+      ],
+      "ai_comment": "환경 기대와 지역경제 우려가 공존하며 찬반 여론이 혼재함"
+    },
+    {
+      "rank": 8,
+      "category": "환경",
+      "title": "천안·아산 전력 인프라 부족 확충 시급 논란",
+      "volume": 1860,
+      "change_pct": 14.0,
+      "sentiment": "부정",
+      "evidence": [
+        "https://search.naver.com/search.naver?where=news&query=천안아산+전력인프라+부족"
+      ],
+      "ai_comment": "투자 확대에 따른 전력 인프라 부족 우려가 부정 여론으로 확산됨"
+    },
+    {
+      "rank": 9,
+      "category": "복지",
+      "title": "충남 지역사회 통합돌봄 전국 시행 파급 효과",
+      "volume": 1550,
+      "change_pct": 8.0,
+      "sentiment": "긍정",
+      "evidence": [
+        "https://search.naver.com/search.naver?where=news&query=충남+통합돌봄+전국시행"
+      ],
+      "ai_comment": "통합돌봄 전국 시행의 선도 사례로 긍정적 평가가 형성됨"
+    },
+    {
+      "rank": 10,
+      "category": "경제",
+      "title": "충남 소비자물가 6개월 연속 2%대 상승 우려",
+      "volume": 1230,
+      "change_pct": -2.0,
+      "sentiment": "부정",
+      "evidence": [
+        "https://search.naver.com/search.naver?where=news&query=충남+소비자물가+상승"
+      ],
+      "ai_comment": "물가 상승 지속에 대한 생활 부담 우려가 부정 여론으로 나타남"
+    }
+  ],
+  "channel_sentiments": [
+    {
+      "channel": "뉴스기사",
+      "positive": 48.0,
+      "neutral": 22.0,
+      "negative": 30.0,
+      "feature_text": "도정 주요 정책·예산 성과 등",
+      "feature_volume": 17810
+    },
+    {
+      "channel": "커뮤니티",
+      "positive": 30.0,
+      "neutral": 15.0,
+      "negative": 55.0,
+      "feature_text": "지역 개발·일자리 기대 등",
+      "feature_volume": 9290
+    },
+    {
+      "channel": "블로그",
+      "positive": 60.0,
+      "neutral": 22.0,
+      "negative": 18.0,
+      "feature_text": "관광·맛집·생활정보 등",
+      "feature_volume": 6970
+    },
+    {
+      "channel": "유튜브",
+      "positive": 45.0,
+      "neutral": 25.0,
+      "negative": 30.0,
+      "feature_text": "정책 영상·현장 이슈 등",
+      "feature_volume": 3100
+    },
+    {
+      "channel": "공공RSS",
+      "positive": 72.0,
+      "neutral": 24.0,
+      "negative": 4.0,
+      "feature_text": "도정 정책·보도자료 등",
+      "feature_volume": 1550
+    }
+  ],
+  "overall_sentiment": {
+    "긍정": 44.8,
+    "중립": 16.6,
+    "부정": 38.6
+  },
+  "related_keywords": [
+    {
+      "keyword": "대전충남통합",
+      "weight": 1.0,
+      "volume": 8420,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "지방선거",
+      "weight": 0.9276,
+      "volume": 7810,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "AI데이터센터",
+      "weight": 0.5843,
+      "volume": 4920,
+      "sentiment": "긍정"
+    },
+    {
+      "keyword": "반도체",
+      "weight": 0.4727,
+      "volume": 3980,
+      "sentiment": "긍정"
+    },
+    {
+      "keyword": "행정통합반대",
+      "weight": 0.4323,
+      "volume": 3640,
+      "sentiment": "부정"
+    },
+    {
+      "keyword": "민생충남",
+      "weight": 0.3705,
+      "volume": 3120,
+      "sentiment": "긍정"
+    },
+    {
+      "keyword": "K-AI특화도시",
+      "weight": 0.3409,
+      "volume": 2870,
+      "sentiment": "긍정"
+    },
+    {
+      "keyword": "공천",
+      "weight": 0.3017,
+      "volume": 2540,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "삼성전자",
+      "weight": 0.2743,
+      "volume": 2310,
+      "sentiment": "긍정"
+    },
+    {
+      "keyword": "통합돌봄",
+      "weight": 0.2352,
+      "volume": 1980,
+      "sentiment": "긍정"
+    },
+    {
+      "keyword": "화력발전",
+      "weight": 0.209,
+      "volume": 1760,
+      "sentiment": "부정"
+    },
+    {
+      "keyword": "전력인프라",
+      "weight": 0.1829,
+      "volume": 1540,
+      "sentiment": "부정"
+    },
+    {
+      "keyword": "탄소중립",
+      "weight": 0.1686,
+      "volume": 1420,
+      "sentiment": "혼재"
+    },
+    {
+      "keyword": "아산",
+      "weight": 0.1603,
+      "volume": 1350,
+      "sentiment": "긍정"
+    },
+    {
+      "keyword": "천안",
+      "weight": 0.152,
+      "volume": 1280,
+      "sentiment": "긍정"
+    },
+    {
+      "keyword": "탈석탄",
+      "weight": 0.133,
+      "volume": 1120,
+      "sentiment": "혼재"
+    },
+    {
+      "keyword": "소비자물가",
+      "weight": 0.1164,
+      "volume": 980,
+      "sentiment": "부정"
+    },
+    {
+      "keyword": "국비확보",
+      "weight": 0.1033,
+      "volume": 870,
+      "sentiment": "긍정"
+    },
+    {
+      "keyword": "주요업무계획",
+      "weight": 0.0903,
+      "volume": 760,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "박수현",
+      "weight": 0.076,
+      "volume": 640,
+      "sentiment": "중립"
+    }
+  ],
+  "positive_keywords": [
+    "AI데이터센터",
+    "반도체",
+    "민생충남",
+    "K-AI특화도시",
+    "통합돌봄"
+  ],
+  "negative_keywords": [
+    "행정통합반대",
+    "화력발전",
+    "전력인프라"
+  ],
+  "special_trends": [
+    {
+      "title": "행정통합 반대 커뮤니티 집중",
+      "detail": "3주차 대전·충남 행정통합 특별법 임시국회 처리 무산 → 커뮤니티·X(트위터) 중심 반대 여론 급증"
+    },
+    {
+      "title": "AI·반도체 투자 호재 긍정 확산",
+      "detail": "아산 AI데이터센터 2조 5천억 유치 발표 후 경제 기대감 SNS 확산"
+    },
+    {
+      "title": "지사 공천 미신청 관련 관심",
+      "detail": "박수현 지사 더불어민주당 공천 미신청 확인 → 재선 불출마 가능성 주목"
+    },
+    {
+      "title": "탄소 중립·탈석탄 정책 관심도 증가",
+      "detail": "국가 탄소중립 계획 구체화 시점과 맞물려 충남 화력 발전 대체 방안 지속 논의"
+    }
+  ],
+  "core_keywords": [
+    {
+      "name": "대전·충남 행정통합",
+      "volume": 8420,
+      "sentiment": "혼재",
+      "change_pct": 34.0,
+      "analysis": "행정통합 특별법 3월 임시국회 처리 불발로 여론의 양극화가 심화되고 있음",
+      "evidence": [
+        "https://search.naver.com/search.naver?where=news&query=대전충남+행정통합+특별법"
+      ],
+      "summary": "행정통합 특별법 3월 임시국회 처리 불발 → 여론 양극화 심화",
+      "positive_point": "통합 찬성: 경제규모 확대·광역 행정 효율화 기대 (X·뉴스 중심)",
+      "negative_point": "통합 반대: 졸속 추진·지방선거 정치 이용 우려 (커뮤니티 집중)",
+      "keywords": [
+        "대전충남특별시",
+        "행정통합",
+        "주민투표",
+        "선거",
+        "졸속"
+      ]
+    },
+    {
+      "name": "반도체·AI 산업 투자",
+      "volume": 8130,
+      "sentiment": "긍정",
+      "change_pct": 40.0,
+      "analysis": "아산 AI 데이터센터 2.5조 유치, 천안 삼성 패키징 증설 호재로 기대감이 집중되고 있음",
+      "evidence": [
+        "https://search.naver.com/search.naver?where=news&query=아산+AI데이터센터+투자",
+        "https://search.naver.com/search.naver?where=news&query=삼성전자+천안+반도체+패키징"
+      ],
+      "summary": "아산 AI 데이터센터 2.5조 유치·천안 삼성 패키징 증설 호재",
+      "positive_point": "일자리 창출·지역경제 활성화·미래산업 거점 기대감 집중",
+      "negative_point": "수도권 반도체 메가클러스터 소외 우려·전력인프라 부족 지적",
+      "keywords": [
+        "AI데이터센터",
+        "반도체패키징",
+        "K-AI",
+        "천안아산",
+        "투자유치"
+      ]
+    },
+    {
+      "name": "6·3 지방선거",
+      "volume": 7810,
+      "sentiment": "중립",
+      "change_pct": 28.0,
+      "analysis": "충남도지사 공천 신청 국면에서 박수현 재선 행보에 주목한 일시적 관심도가 증가하였음",
+      "evidence": [
+        "https://search.naver.com/search.naver?where=news&query=충남도지사+공천"
+      ],
+      "summary": "충남도지사 공천 신청 국면 → 박수현 재선 여부·경쟁 구도 주목",
+      "positive_point": "여권 지지층 결집·도정 성과 기반 재선 기대 (지지층 호감)",
+      "negative_point": "공천 갈등·네거티브 과열 비판 (일부 지지층 실망)",
+      "keywords": [
+        "지방선거",
+        "충남지사",
+        "공천",
+        "박수현",
+        "민선9기"
+      ]
+    },
+    {
+      "name": "탄소중립·에너지 전환",
+      "volume": 4460,
+      "sentiment": "혼재",
+      "change_pct": 9.0,
+      "analysis": "국가 탄소중립 계획 구체화 시점과 맞물려 충남 화력 발전 대체 논의가 지속되고 있음",
+      "evidence": [
+        "https://search.naver.com/search.naver?where=news&query=충남+화력발전+탈석탄"
+      ],
+      "summary": "국가 탄소중립 계획 구체화 시점, 충남 화력발전 대체 논의 지속",
+      "positive_point": "2045년 탄소중립 목표·친환경 에너지 전환 정책 지지 여론",
+      "negative_point": "탈석탄 이후 지역경제 일자리 타격·대체방안 부재 우려",
+      "keywords": [
+        "탄소중립",
+        "화력발전",
+        "탈석탄",
+        "에너지전환",
+        "보령",
+        "당진"
+      ]
+    }
+  ],
+  "job_evaluation": {
+    "subject": "박수현 충남지사",
+    "positive_pct": 45.0,
+    "negative_pct": 38.0,
+    "positive_reasons": [
+      "AI·반도체 투자 유치 성과 체감 (2.5조 유치)",
+      "민생충남 도정 기조 및 소통 행보 긍정 평가",
+      "충남 국비 12조 3223억 역대 최대 확보 성과"
+    ],
+    "negative_reasons": [
+      "행정통합 갈등·주민 의견 반영 부족 지적",
+      "공천 미신청 리더십 불확실성 우려",
+      "전력인프라 부족·탈석탄 대응 미흡 비판"
+    ],
+    "neutral_pct": 17.0,
+    "comparison": {
+      "전국평균": 50.0,
+      "경남": 41.0,
+      "대전": 43.0,
+      "부산": 46.0,
+      "인천": 48.0,
+      "충남": 45.0,
+      "서울": 56.0,
+      "경기": 58.0
+    },
+    "highlight_region": "충남"
+  },
+  "implications": [
+    {
+      "topic": "대전·충남 행정 통합",
+      "headline": "도민 소통 강화 시급",
+      "body": "행정통합 특별법 처리 연기로 반대 여론이 커뮤니티·X(트위터) 중심으로 급증, 주민투표 요구와 졸속 추진 비판이 증가함에 따라 충남도 차원의 투명한 통합 정보 공개 및 도민 의견 수렴 채널 확대 필요",
+      "response": "온라인 소통채널 통합 설명회 / 도민 의견함 운영"
+    },
+    {
+      "topic": "AI·반도체 투자",
+      "headline": "긍정 여론 지속 확산 필요",
+      "body": "아산 AI 데이터센터, 천안 반도체 패키징 증설 호재에 따른 긍정 여론이 SNS 전반 확산, 전력인프라 부족 우려 동시 부각, 투자 성과 구체화·전력 대응 계획 공개로 신뢰도 제고 노력 필요",
+      "response": "AI 투자성과 정기 SNS 업데이트 / 전력인프라 계획 공표"
+    },
+    {
+      "topic": "지방선거 국면",
+      "headline": "도정 성과 객관적 홍보 강화",
+      "body": "6·3 지방선거를 앞두고 도정 성과, 공약이행률에 대한 온라인 검색 및 언급량 증가에 따라 충남도 주요 사업 성과를 체계적으로 정리·공개해 도민의 합리적 평가 판단 지원",
+      "response": "민선 8기 성과 인포그래픽·카드뉴스 제작 및 배포"
+    },
+    {
+      "topic": "탄소중립·에너지 전환",
+      "headline": "지역 경제 연계 로드맵 공유 필요",
+      "body": "탈석탄·탄소중립 이슈는 환경 기대와 경제 우려가 공존, 화력발전 폐지 이후 지역경제 지원·일자리 전환 계획을 구체적으로 제시함으로써 불만 여론 완화 및 긍정적 전환 유도",
+      "response": "탈석탄 이후 경제지원 로드맵 도민 공개 설명회"
+    }
+  ],
+  "entities": {
+    "사람": [
+      "박수현"
+    ],
+    "기관": [
+      "충청남도",
+      "충남도청",
+      "충남도의회",
+      "국회",
+      "더불어민주당"
+    ],
+    "지역": [
+      "아산",
+      "천안",
+      "대전",
+      "음봉"
+    ],
+    "정책": [
+      "행정통합",
+      "탄소중립",
+      "통합돌봄",
+      "탈석탄"
+    ],
+    "예산": [
+      "2조5천억",
+      "국비 12조 3223억"
+    ],
+    "사업명": [
+      "AI데이터센터",
+      "K-AI특화도시",
+      "반도체 패키징 증설"
+    ],
+    "기업명": [
+      "삼성전자"
+    ]
+  }
+}

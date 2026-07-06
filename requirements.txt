@@ -1,0 +1,36 @@
+# AIPORG 의존성
+# 보고서/차트 생성 (필수)
+python-docx==1.2.0
+matplotlib==3.11.0
+wordcloud==1.9.6
+networkx==3.6.1
+scikit-learn==1.9.0
+Pillow==12.3.0
+PyYAML==6.0.3
+
+# 수집 계층 (라이브 크롤링 시)
+requests==2.34.2
+feedparser==6.0.12
+beautifulsoup4==4.15.0
+lxml==6.1.1
+
+# 커뮤니티 어댑터 / YouTube 내부 API
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.6
+
+# YouTube 분석 (키워드 추출)
+kiwipiepy>=0.17
+
+# 테스트
+pytest>=8.0
+
+# (선택) 감성 모델 KcELECTRA/KoELECTRA 사용 시 — 미설치 시 감성 사전으로 자동 폴백
+# transformers>=4.40
+# torch>=2.2
+# (선택) 키워드 정밀도 향상
+# keybert>=0.8
+# sentence-transformers>=2.7
+
+# (선택) 한국어 형태소 분석 정확도 향상
+# konlpy>=0.6.0

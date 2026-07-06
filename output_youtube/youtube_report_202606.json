@@ -1,0 +1,488 @@
+{
+  "source": "youtube",
+  "youtube_overview": {
+    "subject_name": "충청남도",
+    "leader_name": "박수현",
+    "period_start": "2026-06-01",
+    "period_end": "2026-06-30",
+    "video_count": 11,
+    "comment_count": 204,
+    "total_views": 628000,
+    "total_likes": 10600,
+    "positive_ratio": 43.6,
+    "narrative": "2026년 6월 충청남도 관련 유튜브 영상은 11건, 댓글은 204건이 수집됨. 해당 영상의 누적 조회수는 628,000회로 집계되며, 유튜브 채널 내에서 민선9기, 박수현, 박수현 충남도지사, 충남, 충남도지사 등에 대한 관심이 확대된 것으로 나타남. 영상 댓글에서는 긍정 43.6%, 부정 19.6%, 중립 36.8%의 감성 분포가 확인됨."
+  },
+  "channel_sentiment": {
+    "positive": 43.6,
+    "neutral": 36.8,
+    "negative": 19.6,
+    "mixed": 0.0,
+    "total_analyzed": 204
+  },
+  "top_keywords": [
+    {
+      "keyword": "박수현",
+      "frequency": 6,
+      "weight": 1.0,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "도지사",
+      "frequency": 5,
+      "weight": 0.8333,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "민선",
+      "frequency": 3,
+      "weight": 0.5,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "데이터",
+      "frequency": 3,
+      "weight": 0.5685,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "센터",
+      "frequency": 3,
+      "weight": 0.5685,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "투자",
+      "frequency": 3,
+      "weight": 0.5685,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "유치",
+      "frequency": 3,
+      "weight": 0.5685,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "반도체",
+      "frequency": 3,
+      "weight": 0.5685,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "정책",
+      "frequency": 3,
+      "weight": 0.5,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "아산",
+      "frequency": 2,
+      "weight": 0.4434,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "야간",
+      "frequency": 2,
+      "weight": 0.4434,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "경제",
+      "frequency": 2,
+      "weight": 0.4434,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "활성",
+      "frequency": 2,
+      "weight": 0.379,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "화력",
+      "frequency": 2,
+      "weight": 0.4434,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "석탄",
+      "frequency": 2,
+      "weight": 0.4434,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "주민",
+      "frequency": 2,
+      "weight": 0.4434,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "반발",
+      "frequency": 2,
+      "weight": 0.4434,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "지역",
+      "frequency": 2,
+      "weight": 0.379,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "의회",
+      "frequency": 2,
+      "weight": 0.4434,
+      "sentiment": "중립"
+    },
+    {
+      "keyword": "전반기",
+      "frequency": 2,
+      "weight": 0.4434,
+      "sentiment": "중립"
+    }
+  ],
+  "top_topics": [
+    {
+      "topic": "선거",
+      "video_count": 3,
+      "view_sum": 205000,
+      "ratio": 27.3
+    },
+    {
+      "topic": "관광",
+      "video_count": 2,
+      "view_sum": 64000,
+      "ratio": 18.2
+    },
+    {
+      "topic": "경제",
+      "video_count": 2,
+      "view_sum": 140000,
+      "ratio": 18.2
+    },
+    {
+      "topic": "산업",
+      "video_count": 1,
+      "view_sum": 98000,
+      "ratio": 9.1
+    },
+    {
+      "topic": "환경",
+      "video_count": 1,
+      "view_sum": 67000,
+      "ratio": 9.1
+    },
+    {
+      "topic": "기타",
+      "video_count": 1,
+      "view_sum": 23000,
+      "ratio": 9.1
+    }
+  ],
+  "top_videos": [
+    {
+      "video_id": "vid001",
+      "title": "박수현 충남도지사 취임…'통하는 충남' 비전 발표",
+      "description": "박수현 충남도지사가 민선9기 도정 비전을 발표했다. 소통과 민생을 강조.",
+      "channel_title": "충남도정뉴스",
+      "published_at": "2026-06-15T09:00:00Z",
+      "view_count": 152000,
+      "like_count": 3200,
+      "comment_count": 480,
+      "url": "https://www.youtube.com/watch?v=vid001",
+      "matched_keywords": [
+        "민선9기",
+        "박수현",
+        "박수현 충남도지사",
+        "충남",
+        "충남도지사",
+        "충청남도",
+        "통하는 충남"
+      ],
+      "sentiment": "긍정",
+      "topic": "선거"
+    },
+    {
+      "video_id": "vid002",
+      "title": "충남 아산 AI데이터센터 2조 투자 유치 성과",
+      "description": "충청남도가 아산에 대규모 AI데이터센터 투자를 유치했다. 반도체 산업 기대.",
+      "channel_title": "경제TV",
+      "published_at": "2026-06-15T09:00:00Z",
+      "view_count": 98000,
+      "like_count": 2100,
+      "comment_count": 210,
+      "url": "https://www.youtube.com/watch?v=vid002",
+      "matched_keywords": [
+        "충남",
+        "충청남도"
+      ],
+      "sentiment": "긍정",
+      "topic": "산업"
+    },
+    {
+      "video_id": "vid007",
+      "title": "천안 반도체 패키징 증설…일자리 기대",
+      "description": "삼성전자 천안 반도체 패키징 라인 증설로 지역 일자리 창출 기대.",
+      "channel_title": "산업뉴스",
+      "published_at": "2026-06-15T09:00:00Z",
+      "view_count": 88000,
+      "like_count": 1800,
+      "comment_count": 130,
+      "url": "https://www.youtube.com/watch?v=vid007",
+      "matched_keywords": [
+        "충남",
+        "충청남도"
+      ],
+      "sentiment": "긍정",
+      "topic": "경제"
+    },
+    {
+      "video_id": "vid004",
+      "title": "충남 화력발전 탈석탄 논란…주민 반발",
+      "description": "충남 화력발전 폐지와 탈석탄 정책을 두고 지역 주민 반발과 우려가 나온다.",
+      "channel_title": "환경뉴스",
+      "published_at": "2026-06-15T09:00:00Z",
+      "view_count": 67000,
+      "like_count": 400,
+      "comment_count": 320,
+      "url": "https://www.youtube.com/watch?v=vid004",
+      "matched_keywords": [
+        "충남",
+        "충청남도"
+      ],
+      "sentiment": "혼재",
+      "topic": "환경"
+    },
+    {
+      "video_id": "vid008",
+      "title": "충남 전력인프라 부족 우려…투자 발목",
+      "description": "데이터센터 유치에도 전력인프라 부족으로 우려의 목소리가 커진다.",
+      "channel_title": "이슈충남",
+      "published_at": "2026-06-15T09:00:00Z",
+      "view_count": 52000,
+      "like_count": 350,
+      "comment_count": 190,
+      "url": "https://www.youtube.com/watch?v=vid008",
+      "matched_keywords": [
+        "충남",
+        "충청남도"
+      ],
+      "sentiment": "부정",
+      "topic": "경제"
+    },
+    {
+      "video_id": "vid003",
+      "title": "박수현 지사 야간경제 정책 현장 점검",
+      "description": "부여 서동연꽃축제에서 야간경제 활성화 방안을 점검하는 박수현 도지사.",
+      "channel_title": "관광충남",
+      "published_at": "2026-06-15T09:00:00Z",
+      "view_count": 45000,
+      "like_count": 900,
+      "comment_count": 88,
+      "url": "https://www.youtube.com/watch?v=vid003",
+      "matched_keywords": [
+        "박수현",
+        "충남",
+        "충청남도"
+      ],
+      "sentiment": "긍정",
+      "topic": "관광"
+    },
+    {
+      "video_id": "vid009",
+      "title": "박수현 충남도지사 첫 인선 발표…정무부지사 임명",
+      "description": "박수현 도지사가 정무부지사 등 첫 인선을 발표했다.",
+      "channel_title": "충남도정뉴스",
+      "published_at": "2026-06-15T09:00:00Z",
+      "view_count": 41000,
+      "like_count": 500,
+      "comment_count": 96,
+      "url": "https://www.youtube.com/watch?v=vid009",
+      "matched_keywords": [
+        "박수현",
+        "박수현 충남도지사",
+        "충남",
+        "충남도지사",
+        "충청남도"
+      ],
+      "sentiment": "긍정",
+      "topic": "선거"
+    },
+    {
+      "video_id": "vid006",
+      "title": "충남 소상공인 지원 확대…민선9기 복지정책",
+      "description": "충청남도가 소상공인과 취약계층 돌봄 지원을 확대한다고 밝혔다.",
+      "channel_title": "복지충남",
+      "published_at": "2026-06-15T09:00:00Z",
+      "view_count": 31000,
+      "like_count": 620,
+      "comment_count": 55,
+      "url": "https://www.youtube.com/watch?v=vid006",
+      "matched_keywords": [
+        "민선9기",
+        "충남",
+        "충청남도"
+      ],
+      "sentiment": "중립",
+      "topic": "복지"
+    },
+    {
+      "video_id": "vid005",
+      "title": "충남도의회 제13대 개원…전반기 원구성 완료",
+      "description": "충남도의회가 제13대 전반기 원구성을 마치고 개원식을 열었다.",
+      "channel_title": "의회방송",
+      "published_at": "2026-06-15T09:00:00Z",
+      "view_count": 23000,
+      "like_count": 300,
+      "comment_count": 40,
+      "url": "https://www.youtube.com/watch?v=vid005",
+      "matched_keywords": [
+        "충남",
+        "충청남도"
+      ],
+      "sentiment": "중립",
+      "topic": "기타"
+    },
+    {
+      "video_id": "vid010",
+      "title": "충남 관광 활성화…해양레저 콘텐츠 확대",
+      "description": "충청남도가 서해안 해양레저 관광 콘텐츠를 확대한다.",
+      "channel_title": "관광충남",
+      "published_at": "2026-06-15T09:00:00Z",
+      "view_count": 19000,
+      "like_count": 280,
+      "comment_count": 22,
+      "url": "https://www.youtube.com/watch?v=vid010",
+      "matched_keywords": [
+        "충남",
+        "충청남도"
+      ],
+      "sentiment": "중립",
+      "topic": "관광"
+    }
+  ],
+  "top_comments": [
+    {
+      "comment_id": "vid002_c0",
+      "video_id": "vid002",
+      "text": "기대됩니다 응원합니다",
+      "published_at": "2026-06-16T10:00:00Z",
+      "like_count": 69,
+      "author_hash": "4e68080fa36fa9ee",
+      "sentiment": "긍정"
+    },
+    {
+      "comment_id": "vid007_c0",
+      "video_id": "vid007",
+      "text": "기대됩니다 응원합니다",
+      "published_at": "2026-06-16T10:00:00Z",
+      "like_count": 69,
+      "author_hash": "4e68080fa36fa9ee",
+      "sentiment": "긍정"
+    },
+    {
+      "comment_id": "vid004_c0",
+      "video_id": "vid004",
+      "text": "전력부족 우려됩니다",
+      "published_at": "2026-06-16T10:00:00Z",
+      "like_count": 69,
+      "author_hash": "4e68080fa36fa9ee",
+      "sentiment": "부정"
+    },
+    {
+      "comment_id": "vid008_c0",
+      "video_id": "vid008",
+      "text": "전력부족 우려됩니다",
+      "published_at": "2026-06-16T10:00:00Z",
+      "like_count": 69,
+      "author_hash": "4e68080fa36fa9ee",
+      "sentiment": "부정"
+    },
+    {
+      "comment_id": "vid003_c0",
+      "video_id": "vid003",
+      "text": "기대됩니다 응원합니다",
+      "published_at": "2026-06-16T10:00:00Z",
+      "like_count": 69,
+      "author_hash": "4e68080fa36fa9ee",
+      "sentiment": "긍정"
+    },
+    {
+      "comment_id": "vid006_c0",
+      "video_id": "vid006",
+      "text": "기대됩니다 응원합니다",
+      "published_at": "2026-06-16T10:00:00Z",
+      "like_count": 69,
+      "author_hash": "4e68080fa36fa9ee",
+      "sentiment": "긍정"
+    },
+    {
+      "comment_id": "vid010_c0",
+      "video_id": "vid010",
+      "text": "기대됩니다 응원합니다",
+      "published_at": "2026-06-16T10:00:00Z",
+      "like_count": 69,
+      "author_hash": "4e68080fa36fa9ee",
+      "sentiment": "긍정"
+    },
+    {
+      "comment_id": "vid002_c1",
+      "video_id": "vid002",
+      "text": "정책 방향 좋네요",
+      "published_at": "2026-06-16T10:00:00Z",
+      "like_count": 66,
+      "author_hash": "79b0aa0042b3c056",
+      "sentiment": "중립"
+    },
+    {
+      "comment_id": "vid007_c1",
+      "video_id": "vid007",
+      "text": "정책 방향 좋네요",
+      "published_at": "2026-06-16T10:00:00Z",
+      "like_count": 66,
+      "author_hash": "79b0aa0042b3c056",
+      "sentiment": "중립"
+    },
+    {
+      "comment_id": "vid004_c1",
+      "video_id": "vid004",
+      "text": "혈세 낭비 아닌가요",
+      "published_at": "2026-06-16T10:00:00Z",
+      "like_count": 66,
+      "author_hash": "79b0aa0042b3c056",
+      "sentiment": "부정"
+    }
+  ],
+  "notable_trends": [
+    {
+      "title": "'박수현' 관련 영상 관심 집중",
+      "detail": "유튜브 채널 내에서 '박수현' 관련 영상 3건이 조회수 238,000회로 집계되며 이용자 관심이 확대됨"
+    },
+    {
+      "title": "'박수현' 관련 긍정 반응 확산",
+      "detail": "유튜브 이용자 중심으로 '박수현' 관련 긍정적 반응이 확산되는 것으로 분석됨"
+    },
+    {
+      "title": "댓글 참여 집중 영상 확인",
+      "detail": "「박수현 충남도지사 취임…'통하는 충남' 비전 발표」 영상에 댓글 480건이 집계되어 유튜브 채널 내 활발한 의견 개진이 확인됨"
+    }
+  ],
+  "governor_evaluation": {
+    "subject": "박수현 충청남도지사",
+    "positive_pct": 50.9,
+    "negative_pct": 14.5,
+    "neutral_pct": 34.5,
+    "positive_points": [
+      "정책·현장 행보 관련 긍정적 반응이 상대적으로 높게 나타남"
+    ],
+    "negative_points": [
+      "일부 정책·현안에 대한 비판적 반응이 확인됨"
+    ],
+    "note": "본 평가는 유튜브 채널 내 영상·댓글에 한정된 반응으로, 전체 여론을 대표하지 않음. 유튜브 이용자 중심의 반응으로 해석함"
+  },
+  "recommendations": [
+    "유튜브 채널 내 관심이 집중된 '박수현' 관련 정확한 정보 제공 콘텐츠 확대가 필요한 것으로 판단됨",
+    "유튜브 채널을 하나의 여론 창구로 활용한 정기 모니터링 지속이 필요한 것으로 판단됨"
+  ],
+  "ai_summary": "유튜브 채널 내에서는 박수현, 도지사, 민선, 데이터, 센터 등의 키워드가 주요하게 나타남. 영상 댓글에서는 긍정 43.6%, 부정 19.6%, 중립 36.8%로 집계됨. 유튜브 이용자 중심으로 '박수현' 관련 관심이 확대된 것으로 분석되며, 지속적인 모니터링이 필요한 것으로 판단됨."
+}

@@ -1,0 +1,55 @@
+# 실데이터 시연용 설정 — fixture 없이 실제 크롤링(구글 뉴스 RSS + 공공 RSS) 실행.
+# API 키가 필요한 채널(네이버/X/유튜브/인스타/커뮤니티)은 자동 제외(degrade)되며,
+# 뉴스 단일 채널 기반의 축소판 실데이터 보고서가 생성된다.
+#
+# 분석기간은 '최근 30일' 실제 기사가 수집되도록 현재 시점 기준으로 설정한다.
+# (원본 리포트의 2026-03 은 지금 시점에 수집 불가하므로 최근 창으로 대체)
+
+project_name: 충청남도
+
+subject:
+  name: 충청남도
+  leader_title: 도지사
+  leader_name: 박수현
+
+period:
+  start: 2026.06.05
+  end: 2026.07.05
+
+report_title: 충청남도 온라인 여론 분석 (실데이터 시연)
+
+tool_name: AIPORG Live Crawler (Google/공공 RSS)
+
+keywords:
+  충청남도:
+    - 충청남도
+    - 충남
+    - 충남도청
+    - 충남도의회
+    - 충남지사
+    - 충남도지사
+    - 박수현
+    - 민생충남
+  충남도정:
+    - 충남도청
+    - 충청남도청
+    - 충남도의회
+    - 충남도지사
+    - 박수현
+  충남지사(박수현):
+    - 충남도지사
+    - 충청남도지사
+    - 박수현
+
+# 키(토큰) 불필요한 수집기만 활성화
+collectors:
+  - google_news
+  - public_rss
+
+# data_fixture 미지정 -> 라이브 수집 모드
+
+llm:
+  provider: template   # 키 없이 결정론적 서술
+
+max_docs_per_collector: 300
+seed: 42

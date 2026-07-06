@@ -1,0 +1,74 @@
+# 충청남도 2026년 6월 온라인 여론 분석 실행 설정
+# PRD 4항 최소 입력값. 사용자는 이 파일만 편집하면 동일 형식 보고서가 생성된다.
+
+project_name: 충청남도
+
+subject:
+  name: 충청남도
+  leader_title: 도지사
+  leader_name: 박수현        # (원본 리포트의 '김태흠'을 '박수현'으로 치환)
+
+period:
+  start: 2026.06.01
+  end: 2026.06.30
+
+report_title: 2026년 6월 충청남도 온라인 여론 분석
+
+tool_name: AIPORG v1.0
+
+# 키워드 수집 체계 (보고서 표 1-2). 구분 -> 키워드 목록.
+# 포괄관계: 충청남도 ⊇ 충남도정 ⊇ 충남지사
+keywords:
+  충청남도:
+    - 충남
+    - 충남도
+    - 충남도정
+    - 충남도청
+    - 충청남도청
+    - 충남도의회
+    - 충청남도의회
+    - 충남지사
+    - 충남도지사
+    - 충청남도지사
+    - 박수현
+    - 민생충남
+  충남도정:
+    - 충남도
+    - 충남도청
+    - 충청남도청
+    - 충남도의회
+    - 충청남도의회
+    - 충남지사
+    - 충남도지사
+    - 충청남도지사
+    - 박수현
+  충남지사(박수현):
+    - 충남도지사
+    - 충청남도지사
+    - 박수현
+
+# 수집 대상 채널 (PRD 5항). 라이브 수집 시 사용.
+collectors:
+  - naver_news
+  - daum_news
+  - google_news
+  - x
+  - youtube
+  - naver_blog
+  - community
+  - public_rss
+
+# 분석 데이터 소스.
+#   fixture: 사전 산출된 분석 결과(json)를 사용해 재현 가능한 보고서 생성.
+#   라이브 수집 결과를 쓰려면 이 항목을 제거하고 collectors 를 실행한다.
+data_fixture: aiporg/data/chungnam_202606.json
+
+# LLM 서술 엔진.
+#   template: API 키 없이 동작하는 결정론적 공공기관 문체 생성기(재현성 보장, 기본값)
+#   gemini  : Gemini 2.5 Pro  (환경변수 GEMINI_API_KEY 필요)
+#   openai  : GPT-5           (환경변수 OPENAI_API_KEY 필요)
+llm:
+  provider: template
+  model: ""
+
+seed: 42

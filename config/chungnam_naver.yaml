@@ -1,0 +1,52 @@
+# 네이버 검색 API 연동 실데이터 설정.
+# 실행 전 환경변수 필요:
+#   NAVER_CLIENT_ID / NAVER_CLIENT_SECRET  (developers.naver.com 에서 발급)
+# 키가 없으면 naver_* 수집기는 자동 제외되고 google/RSS 만 동작한다.
+
+project_name: 충청남도
+
+subject:
+  name: 충청남도
+  leader_title: 도지사
+  leader_name: 박수현
+
+period:
+  start: 2026.06.01
+  end: 2026.06.30
+
+report_title: 2026년 6월 충청남도 온라인 여론 분석 (실데이터)
+tool_name: AIPORG Live Crawler (Naver/Google/RSS)
+
+keywords:
+  충청남도:
+    - 충청남도
+    - 충남
+    - 충남도청
+    - 충남도의회
+    - 충남지사
+    - 충남도지사
+    - 박수현
+  충남도정:
+    - 충남도청
+    - 충청남도청
+    - 충남도의회
+    - 충남도지사
+    - 박수현
+  충남지사(박수현):
+    - 충남도지사
+    - 충청남도지사
+    - 박수현
+
+# 네이버 뉴스+블로그 + 구글뉴스 + 공공RSS (키 없는 것은 자동 degrade)
+collectors:
+  - naver_news
+  - naver_blog
+  - google_news
+  - public_rss
+
+llm:
+  provider: template        # 감성분석 + 서술문 생성에 Gemini 사용
+  model: gemini-2.5-flash # 무료 티어 동작 모델 (pro 는 무료 한도 초과)
+
+max_docs_per_collector: 300
+seed: 42

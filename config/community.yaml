@@ -1,0 +1,62 @@
+# 커뮤니티 수집 정책 (Community Crawler Adapter)
+#
+# 준법 원칙:
+#  - 공식 커뮤니티 API 를 사용하지 않는다. (Naver 웹검색으로 URL 발견 → 공개 HTML 본문만 파싱)
+#  - 로그인/우회/차단 회피/개인정보 수집/과도한 요청을 구현하지 않는다.
+#  - robots.txt 와 사이트 이용약관을 확인한다.
+#  - 각 사이트는 운영자가 이용약관/robots 를 직접 검토한 뒤에만 enabled: true 로 켠다. (기본 false)
+#
+# 사이트별 필드:
+#  enabled            : 수집 활성화 (기본 false — 운영자 ToS 검토 필수)
+#  domains            : 이 사이트로 인정할 호스트 목록 (발견 URL 필터)
+#  search_hints       : Naver 웹검색 질의에 덧붙일 사이트명 힌트
+#  min_interval_sec   : 동일 호스트 최소 요청 간격(초)
+#  max_requests_per_run : 실행당 이 사이트 최대 요청 수
+#  exclude_patterns   : 수집 제외 URL 정규식 (프로필/개인정보/로그인 등)
+
+defaults:
+  user_agent: "AIPORG-Research-Bot/1.0 (+respect-robots; contact=admin@example.com)"
+  min_interval_sec: 3.0
+  max_requests_per_run: 25
+  request_timeout_sec: 10
+  respect_robots: true          # robots.txt 위반 시 무조건 수집 제외
+  # 개인정보 보호: 작성자 닉네임/프로필/댓글 본문은 저장하지 않는다.
+  store_author: false
+  store_comments_text: false
+
+sites:
+  dcinside:
+    enabled: false
+    domains: [dcinside.com, gall.dcinside.com, m.dcinside.com]
+    search_hints: [디시인사이드, 디시]
+    min_interval_sec: 4.0
+    max_requests_per_run: 20
+    exclude_patterns:
+      - "/person/"          # 인물 정보 페이지
+      - "/mypage"
+      - "login"
+      - "/caricature"
+
+  clien:
+    enabled: false
+    domains: [clien.net, www.clien.net, m.clien.net]
+    search_hints: [클리앙]
+    exclude_patterns: ["/member", "login", "/mypage"]
+
+  fmkorea:
+    enabled: false
+    domains: [fmkorea.com, www.fmkorea.com, m.fmkorea.com]
+    search_hints: [에펨코리아, 펨코]
+    exclude_patterns: ["/index.php?mid=member", "login", "/point"]
+
+  theqoo:
+    enabled: false
+    domains: [theqoo.net, www.theqoo.net, m.theqoo.net]
+    search_hints: [더쿠]
+    exclude_patterns: ["/member", "login"]
+
+  ruliweb:
+    enabled: false
+    domains: [ruliweb.com, bbs.ruliweb.com, m.ruliweb.com]
+    search_hints: [루리웹]
+    exclude_patterns: ["/member", "login", "/user_info"]
