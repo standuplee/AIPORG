@@ -473,7 +473,55 @@ git add aiporg/analyze_keyword_report/sources.py tests/test_keyword_report_sourc
 git commit -m "feat: add keyword report source references"
 ```
 
-### Task 10: Build The Keyword Report Pipeline
+### Task 10: Implement Recommendations And Methodology Builders
+
+**Files:**
+- Create: `aiporg/analyze_keyword_report/recommendations.py`
+- Create: `aiporg/analyze_keyword_report/methodology.py`
+- Test: `tests/test_keyword_report_recommendations.py`
+
+- [ ] **Step 1: Write the failing recommendations test**
+
+```python
+from aiporg.models_keyword_report import KeywordIssue, SentimentDriver
+from aiporg.analyze_keyword_report.recommendations import build_recommendations
+
+
+def test_build_recommendations_returns_implications_and_channel_actions():
+    issues = [KeywordIssue(rank=1, title="폭염 기후재난", subtitle="", body="폭염 대응 이슈", evidence=[], source_notes=[])]
+    negative = [SentimentDriver(sentiment="부정", title="폭염 대응 비판", detail="취약계층 대책 부족", evidence=[])]
+    implications, channel_actions = build_recommendations(issues, [], negative)
+    assert implications
+    assert channel_actions
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest tests/test_keyword_report_recommendations.py -v`
+Expected: FAIL because builders do not exist.
+
+- [ ] **Step 3: Write minimal implementation**
+
+Add deterministic builders for:
+- `implications`
+- `channel_recommendations`
+- `methodology` summary text
+
+These builders must be evidence-aware and must not depend on optional LLM behavior.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest tests/test_keyword_report_recommendations.py -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add aiporg/analyze_keyword_report/recommendations.py aiporg/analyze_keyword_report/methodology.py tests/test_keyword_report_recommendations.py
+git commit -m "feat: add keyword report recommendations"
+```
+
+### Task 11: Build The Keyword Report Pipeline In Small Steps
 
 **Files:**
 - Create: `aiporg/analyze_keyword_report/__init__.py`
@@ -511,28 +559,49 @@ def test_keyword_pipeline_builds_keyword_report_model():
 Run: `pytest tests/test_keyword_report_pipeline.py -v`
 Expected: FAIL because pipeline does not exist.
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 3: Write minimal pipeline shell**
 
-Orchestrate:
-- current-period docs
-- comparison-period docs
-- issue keywords from config
-- sentiment fallback handling
-- final `KeywordReportModel` assembly
+Implement the class and method signature first:
 
-- [ ] **Step 4: Run test to verify it passes**
+```python
+class KeywordAnalysisPipeline:
+    def run(self, current_docs, previous_docs, meta, issue_keywords=None):
+        ...
+```
+
+- [ ] **Step 4: Add summary and comparison fallback behavior**
+
+Implement explicit handling for:
+- current-period summary fields
+- comparison-period month-over-month calculation
+- `비교 불가` fallback when `previous_docs` is empty
+
+- [ ] **Step 5: Add evidence-backed assembly**
+
+Integrate:
+- issues
+- channels
+- keywords
+- sentiment
+- sources
+- implications
+- methodology
+
+Ensure every narrative section maps back to previously built evidence-bearing components.
+
+- [ ] **Step 6: Run test to verify it passes**
 
 Run: `pytest tests/test_keyword_report_pipeline.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add aiporg/analyze_keyword_report/__init__.py aiporg/analyze_keyword_report/pipeline.py tests/test_keyword_report_pipeline.py
 git commit -m "feat: add keyword report pipeline"
 ```
 
-### Task 11: Add Keyword Report DOCX Layout Helpers
+### Task 12: Add Keyword Report DOCX Layout Helpers
 
 **Files:**
 - Create: `aiporg/report/keyword_layout.py`
@@ -576,75 +645,7 @@ git add aiporg/report/keyword_layout.py aiporg/report/keyword_sections.py tests/
 git commit -m "feat: add keyword report layout helpers"
 ```
 
-### Task 12: Implement Keyword Report DOCX Writer
-
-**Files:**
-- Create: `aiporg/report/keyword_docx_writer.py`
-- Modify: `aiporg/report/__init__.py`
-- Test: `tests/test_keyword_report_docx_writer.py`
-
-- [ ] **Step 1: Write the failing DOCX writer test**
-
-```python
-from pathlib import Path
-
-from docx import Document as Docx
-
-from aiporg.models_keyword_report import KeywordReportModel, KeywordReportSummary
-from aiporg.report.keyword_docx_writer import write_keyword_docx
-
-
-def test_write_keyword_docx_contains_required_headings(tmp_path):
-    out = tmp_path / "keyword.docx"
-    model = KeywordReportModel(
-        summary=KeywordReportSummary(
-            analysis_period="2026.07.01~2026.07.31",
-            channel_count=6,
-            primary_keyword="박수현",
-            positive_ratio=58.0,
-            month_over_month="▼3%p",
-        )
-    )
-
-    write_keyword_docx(model, str(out))
-
-    doc = Docx(str(out))
-    text = "\n".join(p.text for p in doc.paragraphs)
-    assert "CONTENTS" in text
-    assert "REPORT SUMMARY" in text
-    assert "제1장" in text
-    assert "제6장" in text
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest tests/test_keyword_report_docx_writer.py -v`
-Expected: FAIL because writer does not exist.
-
-- [ ] **Step 3: Write minimal implementation**
-
-Implement a dedicated writer with:
-- cover
-- static TOC
-- summary page
-- chapter 1-6 headings
-- empty-state-safe sections
-
-Do not route through the existing narrator-based writer.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `pytest tests/test_keyword_report_docx_writer.py -v`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add aiporg/report/keyword_docx_writer.py aiporg/report/__init__.py tests/test_keyword_report_docx_writer.py
-git commit -m "feat: add keyword report docx writer"
-```
-
-### Task 13: Add Keyword Report Chart Rendering
+### Task 13: Add Keyword Report Chart Rendering Contract
 
 **Files:**
 - Create: `aiporg/charts/keyword_render.py`
@@ -670,7 +671,10 @@ Expected: FAIL because renderer does not exist.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add only charts needed for the keyword report structure. If a chart is not ready, return a stable fallback mapping and let the writer render text/table alternatives.
+Add only charts needed for the keyword report structure. Define the fallback contract explicitly:
+- renderer returns a stable dict of optional chart paths
+- missing charts are legal
+- section fallback ownership lives in `keyword_sections.py`
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -684,7 +688,122 @@ git add aiporg/charts/keyword_render.py tests/test_keyword_report_charts.py
 git commit -m "feat: add keyword report charts"
 ```
 
-### Task 14: Integrate CLI Dispatch And Format Validation
+### Task 14: Implement Keyword Report DOCX Writer
+
+**Files:**
+- Create: `aiporg/report/keyword_docx_writer.py`
+- Modify: `aiporg/report/__init__.py`
+- Test: `tests/test_keyword_report_docx_writer.py`
+
+- [ ] **Step 1: Write the failing DOCX writer structure test**
+
+```python
+from docx import Document as Docx
+
+from aiporg.models_keyword_report import KeywordReportModel, KeywordReportSummary
+from aiporg.report.keyword_docx_writer import write_keyword_docx
+
+
+def test_write_keyword_docx_contains_required_headings(tmp_path):
+    out = tmp_path / "keyword.docx"
+    model = KeywordReportModel(
+        summary=KeywordReportSummary(
+            analysis_period="2026.07.01~2026.07.31",
+            channel_count=6,
+            primary_keyword="박수현",
+            positive_ratio=58.0,
+            month_over_month="▼3%p",
+        )
+    )
+
+    write_keyword_docx(model, str(out), charts={})
+
+    doc = Docx(str(out))
+    text = "\n".join(p.text for p in doc.paragraphs)
+    assert "CONTENTS" in text
+    assert "REPORT SUMMARY" in text
+    assert "제1장" in text
+    assert "제6장" in text
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest tests/test_keyword_report_docx_writer.py -v`
+Expected: FAIL because writer does not exist.
+
+- [ ] **Step 3: Write minimal implementation**
+
+Implement a dedicated writer with:
+- cover
+- static TOC
+- summary page
+- chapter 1-6 headings
+- chart-or-table fallback hooks delegated through `keyword_sections.py`
+- empty-state-safe sections
+
+Do not route through the existing narrator-based writer.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest tests/test_keyword_report_docx_writer.py -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add aiporg/report/keyword_docx_writer.py aiporg/report/__init__.py tests/test_keyword_report_docx_writer.py
+git commit -m "feat: add keyword report docx writer"
+```
+
+### Task 15: Wire Comparison-Period Collection Into Real Run Flow
+
+**Files:**
+- Modify: `aiporg/cli.py`
+- Optionally Modify: `aiporg/collect/base.py`
+- Test: `tests/test_cli_keyword_report_collection.py`
+
+- [ ] **Step 1: Write the failing collection wiring test**
+
+```python
+from datetime import date
+
+from aiporg.analyze_keyword_report.periods import previous_month_range
+
+
+def test_keyword_report_run_uses_previous_month_range():
+    start, end = previous_month_range(date(2026, 7, 1), date(2026, 7, 31))
+    assert (start.isoformat(), end.isoformat()) == ("2026-06-01", "2026-06-30")
+```
+
+Add a CLI-level integration test that asserts the keyword flow attempts to build both current and previous `Document` sets from the same collectors.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest tests/test_cli_keyword_report_collection.py -v`
+Expected: FAIL because CLI does not yet build comparison documents.
+
+- [ ] **Step 3: Write minimal implementation**
+
+In the real `run` flow:
+- build current-period docs with existing collector rules
+- build previous-period docs with the same collector names and max-doc limits
+- pass both sets into `KeywordAnalysisPipeline`
+
+Do not leave previous docs as a test-only empty list.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest tests/test_cli_keyword_report_collection.py -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add aiporg/cli.py aiporg/collect/base.py tests/test_cli_keyword_report_collection.py
+git commit -m "feat: collect comparison period for keyword report"
+```
+
+### Task 16: Integrate CLI Dispatch And Format Validation
 
 **Files:**
 - Modify: `aiporg/cli.py`
@@ -734,7 +853,54 @@ git add aiporg/cli.py aiporg/config.py tests/test_cli_keyword_report.py
 git commit -m "feat: wire keyword report cli flow"
 ```
 
-### Task 15: Add End-to-End Fixture Coverage For Keyword Report
+### Task 17: Add Existing-Flow Regression Coverage
+
+**Files:**
+- Create: `tests/test_cli_default_report.py`
+- Modify: `tests/test_cli_keyword_report.py`
+
+- [ ] **Step 1: Write the failing default-flow regression test**
+
+```python
+from aiporg.cli import main
+
+
+def test_default_report_type_still_accepts_existing_formats(tmp_path):
+    out_dir = tmp_path / "out"
+    main([
+        "run",
+        "--config", "config/chungnam_202606.yaml",
+        "--formats", "json",
+        "--out", str(out_dir),
+    ])
+    assert list(out_dir.glob("*_analysis.json"))
+```
+
+- [ ] **Step 2: Run test to verify it fails or exposes regressions**
+
+Run: `pytest tests/test_cli_default_report.py -v`
+Expected: PASS only after the new CLI branching preserves default behavior.
+
+- [ ] **Step 3: Write or adjust implementation**
+
+Protect:
+- default `run` dispatch
+- existing format handling
+- non-keyword writer path
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest tests/test_cli_default_report.py -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tests/test_cli_default_report.py tests/test_cli_keyword_report.py aiporg/cli.py
+git commit -m "test: protect existing report cli flow"
+```
+
+### Task 18: Add End-to-End Fixture Coverage For Keyword Report
 
 **Files:**
 - Create: `tests/test_keyword_report_e2e.py`
@@ -782,7 +948,43 @@ git add tests/test_keyword_report_e2e.py aiporg/data/keyword_report_fixture.json
 git commit -m "test: cover keyword report end to end"
 ```
 
-### Task 16: Run Full Regression Verification
+### Task 19: Strengthen DOCX Structure Verification
+
+**Files:**
+- Modify: `tests/test_keyword_report_docx_writer.py`
+- Optionally Create: `tests/fixtures/keyword_report_expected_sections.txt`
+
+- [ ] **Step 1: Add failing structure assertions**
+
+Extend the writer test to verify:
+- exact section order
+- TOC presence
+- summary labels
+- chapter 1-6 presence
+- fallback text when chart mapping is empty
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest tests/test_keyword_report_docx_writer.py -v`
+Expected: FAIL until stronger assertions are satisfied.
+
+- [ ] **Step 3: Adjust writer or fixture expectations**
+
+Keep the verification deterministic by using extracted paragraph text or document XML rather than manual inspection only.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest tests/test_keyword_report_docx_writer.py -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tests/test_keyword_report_docx_writer.py tests/fixtures/keyword_report_expected_sections.txt aiporg/report/keyword_docx_writer.py
+git commit -m "test: strengthen keyword report docx verification"
+```
+
+### Task 20: Run Full Regression Verification
 
 **Files:**
 - Modify as needed: any files touched during verification fixes
@@ -801,11 +1003,14 @@ pytest tests/test_config_keyword_report.py \
   tests/test_keyword_report_channels.py \
   tests/test_keyword_report_sentiment.py \
   tests/test_keyword_report_sources.py \
+  tests/test_keyword_report_recommendations.py \
   tests/test_keyword_report_pipeline.py \
   tests/test_keyword_report_layout.py \
   tests/test_keyword_report_docx_writer.py \
   tests/test_keyword_report_charts.py \
+  tests/test_cli_keyword_report_collection.py \
   tests/test_cli_keyword_report.py \
+  tests/test_cli_default_report.py \
   tests/test_keyword_report_e2e.py -v
 ```
 
@@ -816,16 +1021,31 @@ Expected: PASS
 Run:
 
 ```bash
+pytest tests/test_cli_default_report.py -v
 pytest tests/test_youtube.py -v
 ```
 
 Expected: PASS
 
-- [ ] **Step 3: Run representative sample generation**
+- [ ] **Step 3: Run representative existing sample generation**
 
 Run:
 
 ```bash
+python -m aiporg.cli run \
+  --config config/chungnam_202606.yaml \
+  --formats json \
+  --out output_regression
+```
+
+Expected: Existing report flow still generates its normal artifact set for the requested formats.
+
+- [ ] **Step 4: Run representative keyword sample generation**
+
+Run:
+
+```bash
+pytest tests/test_youtube.py -v
 python -m aiporg.cli run \
   --config config/chungnam_202606.yaml \
   --report-type keyword \
@@ -835,7 +1055,7 @@ python -m aiporg.cli run \
 
 Expected: DOCX file generated successfully.
 
-- [ ] **Step 4: Review output structure manually**
+- [ ] **Step 5: Review output structure manually**
 
 Check:
 - cover
@@ -843,8 +1063,10 @@ Check:
 - REPORT SUMMARY
 - chapter 1-6 order
 - empty-state handling if data is missing
+- table/chart fallback behavior
+- source/methodology sections present
 
-- [ ] **Step 5: Commit final verification fixes**
+- [ ] **Step 6: Commit final verification fixes**
 
 ```bash
 git add <touched-files>
