@@ -16,6 +16,11 @@ from .models import ReportMeta
 
 
 @dataclass
+class KeywordReportConfig:
+    issue_keywords: dict[str, list[str]] = field(default_factory=dict)
+
+
+@dataclass
 class RunConfig:
     meta: ReportMeta
     # 실행 옵션
@@ -25,6 +30,7 @@ class RunConfig:
     data_fixture: str | None = None    # 사전 산출된 분석 데이터(json) 경로
     max_docs_per_collector: int = 200
     seed: int = 42                     # 재현성 보장용 시드
+    keyword_report: KeywordReportConfig = field(default_factory=KeywordReportConfig)
 
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -55,6 +61,7 @@ def load_config(path: str) -> RunConfig:
     )
 
     llm = raw.get("llm", {})
+    keyword_report_raw = raw.get("keyword_report", {})
     return RunConfig(
         meta=meta,
         collectors=raw.get("collectors", []),
@@ -63,6 +70,9 @@ def load_config(path: str) -> RunConfig:
         data_fixture=raw.get("data_fixture"),
         max_docs_per_collector=raw.get("max_docs_per_collector", 200),
         seed=raw.get("seed", 42),
+        keyword_report=KeywordReportConfig(
+            issue_keywords=keyword_report_raw.get("issue_keywords", {}),
+        ),
         raw=raw,
     )
 
