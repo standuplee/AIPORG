@@ -1,0 +1,323 @@
+# Keyword Report Design
+
+## Goal
+
+기존 AIPORG의 수집 원천과 기존 보고서 생성 기능은 유지하면서, 동일한 `Document`
+입력을 기반으로 레퍼런스 문서
+`2026년도 7월 충남 온라인여론 키워드조사 분석 보고서` 형식을 재현하는 신규 보고서
+타입을 추가한다.
+
+이 신규 타입은 기존 보고서와 별도의 데이터 모델, 분석 파이프라인, DOCX 렌더링 경로를
+가져야 하며, 기존 `run` 흐름에 선택 가능한 report profile 로 통합되어야 한다.
+
+## Context
+
+- 현재 AIPORG는 뉴스, X, 인스타그램, 유튜브, 커뮤니티, 블로그, RSS 등에서 수집한
+  `Document`를 기반으로 기존 공공기관형 월간 여론분석 보고서를 생성한다.
+- 기존 리포트는 `AnalysisResult`, `ReportModel`, `TemplateNarrator`, 기존
+  `report/*_writer.py` 조합을 전제로 한다.
+- 새 레퍼런스 문서는 같은 주제 영역이지만, 구성과 산출물 성격이 다르다.
+  - 표지, 목차, 리포트 서머리 페이지가 별도로 존재함
+  - 본문이 "핵심 이슈 4건", "채널별 동향", "키워드 TOP 20", "감성 원인",
+    "운영 제언", "출처/방법론" 중심으로 구성됨
+  - 기존 보고서보다 브리핑형, 키워드형, 운영 제언형 문서에 가깝다
+
+## Non-Goals
+
+- 기존 보고서 포맷이나 출력 구조를 변경하지 않는다.
+- 기존 `AnalysisResult`에 조건문을 누적해 두 포맷을 동시에 억지로 수용하지 않는다.
+- 1차 범위에서 HTML/Markdown 출력의 완전한 레퍼런스 재현을 목표로 하지 않는다.
+- 레퍼런스 PDF의 픽셀 단위 복제는 목표가 아니다.
+- 새 보고서 때문에 새로운 수집기를 대거 도입하지 않는다.
+
+## Reference Structure
+
+HWP preview text 기준으로 신규 보고서의 필수 섹션 구조는 아래와 같다.
+
+1. 표지
+2. 목차
+3. `REPORT SUMMARY`
+4. `제1장 분석 개요`
+   - 1.1 분석 목적
+   - 1.2 분석 개요
+   - 1.3 분석 범위 및 주제어 체계
+5. `제2장 월간 주요 이슈 동향`
+   - 이슈 4건
+6. `제3장 온라인 채널별 여론 동향`
+   - 3.1 채널별 언급량 분포
+   - 3.2 월간 주요 키워드 TOP 20
+7. `제4장 감성 분석 - 긍·부정 여론 동향`
+   - 4.1 전반 감성 분포
+   - 4.2 긍정 여론 주요 원인
+   - 4.3 부정 여론 주요 원인
+8. `제5장 시사점 및 도정 운영 제언`
+   - 5.1 핵심 시사점
+   - 5.2 채널별 대응 전략 제언
+9. `제6장 출처 및 참고자료`
+   - 6.1 여론조사 출처
+   - 6.2 뉴스 및 언론 출처
+   - 6.3 참고 분석 방법론
+
+## Product Requirements
+
+### User-facing behavior
+
+- 사용자는 기존과 동일하게 YAML 설정과 실행 명령을 사용하되, 신규 보고서 타입을 선택할
+  수 있어야 한다.
+- 기존 보고서 생성 명령은 그대로 동작해야 한다.
+- 신규 보고서 생성 시 최소 `DOCX` 결과물을 생성해야 한다.
+- 신규 DOCX는 레퍼런스 문서와 섹션 구조, 문체 톤, 정보 배치 의도를 충실히 반영해야 한다.
+
+### Functional requirements
+
+신규 보고서 전용 결과 모델은 최소 아래 정보를 포함해야 한다.
+
+1. 보고서 메타 요약
+   - 분석기간
+   - 분석채널 수
+   - 핵심 검색어
+   - 전체 긍정여론 비율
+   - 전월 대비 증감
+2. 핵심 이슈 4건
+   - 이슈명
+   - 요약 설명
+   - 대표 근거 문장 또는 설명
+   - 대표 출처
+   - 요약 코멘트
+3. 채널별 동향
+   - 채널명
+   - 언급량 또는 비중
+   - 전월 대비 방향성
+   - 대표 키워드
+4. 월간 키워드 TOP 20
+   - 순위
+   - 키워드
+   - 카테고리
+5. 감성 분석
+   - 긍정/부정/중립 분포
+   - 긍정 원인 항목
+   - 부정 원인 항목
+6. 운영 제언
+   - 핵심 시사점
+   - 채널별 대응 전략
+7. 출처/방법론
+   - 출처 목록
+   - 분석 도구 설명
+   - 방법론 설명
+
+### Data source requirements
+
+- 수집 원천은 기존과 동일한 `Document` 기반 파이프라인을 우선 사용한다.
+- 추가 데이터가 필요할 경우 확장 가능하되, 기본 설계는 기존 수집층 재사용을 전제로 한다.
+- 레퍼런스 수치나 문장을 하드코딩으로 복제하지 않는다.
+- 동일 입력에서 재현 가능한 분석 결과를 우선한다.
+
+## Recommended Architecture
+
+권장안은 `기존 수집 공유 + 신규 report profile` 이다.
+
+### New modules
+
+- `aiporg/models_keyword_report.py`
+  - 신규 보고서 전용 데이터 모델
+- `aiporg/analyze_keyword_report/`
+  - 신규 보고서용 분석 오케스트레이터와 세부 분석기
+- `aiporg/report/keyword_docx_writer.py`
+  - 신규 보고서 전용 DOCX writer
+- `aiporg/report/keyword_layout.py`
+  - 표지, 목차, summary card, 표 스타일, 장 제목 스타일 등 레이아웃 구성
+- `aiporg/report/keyword_sections.py`
+  - 장별 렌더링 헬퍼
+
+### Existing modules to extend
+
+- `aiporg/cli.py`
+  - 기존 `run` 명령에 보고서 타입 선택 인자 추가
+- `aiporg/config.py`
+  - 보고서 타입 또는 프로필 선택을 위한 설정 필드 추가 가능
+- `aiporg/charts/`
+  - 기존 차트 재사용 가능 여부를 검토하고, 신규 보고서용 차트를 별도 추가 가능
+
+## Data Model Design
+
+신규 모델은 기존 `AnalysisResult`와 별개여야 한다. 대표 예시는 아래와 같다.
+
+- `KeywordReportModel`
+  - `meta`
+  - `summary`
+  - `issues`
+  - `channel_overview`
+  - `top_keywords`
+  - `sentiment_overview`
+  - `positive_drivers`
+  - `negative_drivers`
+  - `implications`
+  - `channel_recommendations`
+  - `sources`
+  - `methodology`
+
+- `KeywordReportSummary`
+  - 분석기간
+  - 분석채널 수
+  - 핵심 검색어
+  - 긍정여론
+  - 전월대비 증감
+
+- `KeywordIssue`
+  - rank
+  - title
+  - subtitle
+  - body
+  - evidence
+  - source_notes
+
+- `ChannelTrendItem`
+  - channel
+  - share_or_volume
+  - change_direction
+  - keywords
+
+- `RankedKeywordItem`
+  - rank
+  - keyword
+  - category
+
+- `SentimentDriver`
+  - sentiment
+  - title
+  - detail
+  - evidence
+
+## Analysis Pipeline Design
+
+### Pipeline entry
+
+- 입력은 기존과 동일하게 `Document` 목록과 `ReportMeta` 계열 설정을 받는다.
+- 출력은 신규 `KeywordReportModel` 이다.
+
+### Analysis stages
+
+1. 이슈 선정
+   - 문서 군집
+   - 기간 내 급증 키워드 탐지
+   - 문서 반응도 또는 중요도 가중치 적용
+   - 최종 4개 이슈 선별
+
+2. 채널별 동향 산출
+   - 채널별 문서량 집계
+   - 필요시 전월 비교용 이전 기간 집계
+   - 채널별 대표 키워드 추출
+
+3. 월간 키워드 TOP 20
+   - 연관 키워드 추출
+   - 중복/불용어 정리
+   - 카테고리 규칙 분류
+
+4. 감성 동향
+   - 전체 감성 분포 집계
+   - 긍정/부정 문서 그룹 분리
+   - 원인성 키워드와 대표 근거 문장 추출
+
+5. 운영 제언
+   - 규칙 기반 초안 생성
+   - 필요 시 LLM 보강 가능
+   - 단, 기본은 재현성과 안전성을 위해 규칙 기반 우선
+
+6. 출처 및 방법론
+   - 사용 문서 출처 목록 정리
+   - 사용 분석 기법 텍스트화
+
+## Rendering Requirements
+
+### Output priority
+
+- 1차 목표는 `DOCX`
+- 이후 필요 시 HTML/MD는 확장
+
+### Rendering behavior
+
+- 레퍼런스 문서와 같은 장/절 구조를 유지한다.
+- 표지, 목차, summary 페이지를 별도 렌더링한다.
+- 요약 카드, 표, 리스트, 인용 출처 영역을 장별로 분리한다.
+- 데이터가 부족한 경우 문서가 깨지지 않도록 축약 문구와 빈 상태 렌더링 규칙을 둔다.
+- 숫자는 실제 산출값을 사용하고, 설명문은 그 숫자와 모순되지 않아야 한다.
+
+### Style requirements
+
+- 공공기관 보고서형 분석체를 유지한다.
+- 개조식 서술과 짧은 분석 문장을 우선한다.
+- 지나친 자유 생성보다 템플릿 일관성을 우선한다.
+
+## CLI and Configuration
+
+### CLI changes
+
+기존 `run` 흐름은 유지하고, 신규 옵션으로 분기한다.
+
+예시:
+
+```bash
+python -m aiporg.cli run \
+  --config config/chungnam_202606.yaml \
+  --report-type keyword \
+  --formats docx \
+  --out output_keyword
+```
+
+### Config changes
+
+선택지는 두 가지다.
+
+1. CLI 인자로만 보고서 타입 지정
+2. YAML에 `report_type` 필드 추가
+
+권장안은 CLI 인자 우선, YAML 보조 허용이다. 기존 설정 파일 호환성을 유지하기 쉽다.
+
+## Testing Strategy
+
+### Unit tests
+
+- 신규 데이터 모델 직렬화/복원 테스트
+- 이슈 선정 로직 테스트
+- 채널별 동향 계산 테스트
+- 키워드 카테고리 분류 테스트
+- 감성 원인 추출 테스트
+
+### Integration tests
+
+- fixture 기반 신규 보고서 모델 생성 테스트
+- 신규 DOCX writer 산출 테스트
+- 기존 보고서 생성 경로 회귀 테스트
+
+### Regression protection
+
+- 기존 `run` 기본 동작이 변하지 않는지 검증
+- 신규 옵션 미사용 시 기존 산출물이 동일한지 확인
+
+## Failure Handling
+
+- 수집 문서가 적을 때 이슈 수를 축소할 수 있어야 한다.
+- 전월 비교 데이터가 없을 경우 증감 항목은 `비교 데이터 없음` 등 안전 문구로 대체한다.
+- 특정 채널 데이터가 없을 경우 해당 채널을 제외하거나 0건으로 표기한다.
+- 감성 원인이 충분히 분리되지 않을 경우 대표 키워드 기반 요약으로 폴백한다.
+
+## Acceptance Criteria
+
+1. 기존 보고서 생성 기능이 그대로 유지된다.
+2. 신규 보고서 타입을 선택해 별도 DOCX를 생성할 수 있다.
+3. 신규 DOCX는 레퍼런스 문서와 동일한 섹션 순서와 의미 구조를 가진다.
+4. 신규 결과 모델과 분석 파이프라인은 기존 `AnalysisResult` 경로와 분리되어 있다.
+5. 신규 기능 추가 후 기존 테스트가 깨지지 않는다.
+6. 데이터 부족 상황에서도 문서 렌더링이 실패하지 않는다.
+
+## Open Questions
+
+- 전월 대비 증감 계산을 위해 이전 월 데이터를 항상 함께 수집할지, 선택적으로 확장할지 결정 필요
+- 레퍼런스 문서의 차트 구성과 시각 스타일을 어느 수준까지 정확히 맞출지 결정 필요
+- `HTML/MD` 지원을 초기 범위에 포함할지 여부 결정 필요
+
+## Recommendation
+
+구현은 `Document` 수집층을 공유하고, 신규 분석 모델과 DOCX writer 를 분리하는 방향으로
+진행한다. 이 방식이 기존 기능 회귀 위험을 가장 낮추면서도, 레퍼런스 문서에 가까운
+구조적 재현을 가능하게 한다.
