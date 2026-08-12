@@ -1,0 +1,85 @@
+# 충청남도 2026년 7월 온라인 여론 키워드조사 보고서 실행 설정
+
+project_name: 충청남도
+
+subject:
+  name: 충청남도
+  leader_title: 도지사
+  leader_name: 박수현
+
+period:
+  start: 2026.07.01
+  end: 2026.07.31
+
+report_title: 2026년 7월 충청남도 온라인 여론 키워드조사 분석 보고서
+
+tool_name: AIPORG v1.0
+
+keywords:
+  충청남도:
+    - 충남
+    - 충남도
+    - 충남도정
+    - 충남도청
+    - 충청남도청
+    - 충남도의회
+    - 충청남도의회
+    - 충남지사
+    - 충남도지사
+    - 충청남도지사
+    - 박수현
+  충남도정:
+    - 충남도
+    - 충남도청
+    - 충청남도청
+    - 충남도의회
+    - 충청남도의회
+    - 충남지사
+    - 충남도지사
+    - 충청남도지사
+    - 박수현
+  충남지사(박수현):
+    - 충남도지사
+    - 충청남도지사
+    - 박수현
+
+collectors:
+  - naver_news
+  - daum_news
+  - google_news
+  - x
+  - youtube
+  - naver_blog
+  - community
+  - public_rss
+
+llm:
+  provider: template
+  model: ""
+
+keyword_report:
+  issue_keywords:
+    충효예 충청정신:
+      - 충효예
+      - 충청정신
+      - 충효예 충청정신
+      - 박수현 충효예
+    AI수도 충남:
+      - 대한민국 AI수도 충남
+      - AI수도 충남
+      - 충남 AI
+      - 3력 혁신
+      - 전력 수력 인력
+    발전통합 본사 유치:
+      - 발전통합
+      - 발전통합 본사
+      - 본사 유치
+      - 충남 유치
+    폭염 기후재난:
+      - 기후살인
+      - 폭염
+      - 기후재난
+      - 폭염 대책
+      - 취약계층 보호
+
+seed: 42

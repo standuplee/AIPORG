@@ -20,10 +20,13 @@ import sys
 
 from .analyze import AnalysisPipeline
 from .charts import ChartRenderer
+from .charts.keyword_render import KeywordChartRenderer
+from .analyze_keyword_report.periods import previous_month_range
+from .analyze_keyword_report.pipeline import KeywordAnalysisPipeline
 from .config import load_config
 from .llm import build_narrator
 from .models import ReportModel
-from .report import write_docx, write_html, write_markdown
+from .report import write_docx, write_html, write_keyword_docx, write_markdown
 
 log = logging.getLogger("aiporg")
 
@@ -41,8 +44,17 @@ def run(args):
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     cfg = load_config(args.config)
     m = cfg.meta
+    report_type = getattr(args, "report_type", "default")
     log.info("실행: %s / %s~%s / 대상=%s(%s)", m.report_title,
              m.period_start, m.period_end, m.subject_name, m.leader_name)
+    if report_type == "keyword":
+        if args.formats == "docx,html,md":
+            args.formats = "docx"
+        formats = [f.strip() for f in args.formats.split(",") if f.strip()]
+        if any(fmt != "docx" for fmt in formats):
+            raise SystemExit("keyword report currently supports only docx")
+        return _run_keyword_report(args, cfg, project_root, formats)
+    formats = [f.strip() for f in args.formats.split(",") if f.strip()]
 
     pipeline = AnalysisPipeline(seed=cfg.seed)
 
@@ -95,7 +107,6 @@ def run(args):
 
     # --- 보고서 --------------------------------------------------------- #
     base = _basename(m)
-    formats = [f.strip() for f in args.formats.split(",") if f.strip()]
     produced = []
     if "docx" in formats:
         p = write_docx(model, narrator, charts, os.path.join(out_dir, base + ".docx"),
@@ -110,6 +121,48 @@ def run(args):
     if "json" in formats:
         p = os.path.join(out_dir, base + "_analysis.json")
         analysis.to_json(p)
+        produced.append(p)
+
+    print("\n생성된 보고서:")
+    for p in produced:
+        size = os.path.getsize(p)
+        print(f"  ✓ {p}  ({size:,} bytes)")
+    return produced
+
+
+def _run_keyword_report(args, cfg, project_root: str, formats: list[str]):
+    from .collect import build_registry
+
+    m = cfg.meta
+    out_dir = _resolve(args.out, project_root)
+    os.makedirs(out_dir, exist_ok=True)
+    all_kw = sorted({k for kws in m.keywords.values() for k in kws})
+    for kws in cfg.keyword_report.issue_keywords.values():
+        all_kw.extend(kws)
+    all_kw = sorted(set(all_kw))
+
+    if cfg.data_fixture:
+        log.info("keyword 보고서는 Document 기반 재분석이 필요하므로 data_fixture 는 무시하고 collectors 를 사용함")
+    registry = build_registry(cfg.collectors, cfg.max_docs_per_collector)
+    docs = registry.run(all_kw, m.period_start, m.period_end)
+    prev_start, prev_end = previous_month_range(m.period_start, m.period_end)
+    previous_docs = registry.run(all_kw, prev_start, prev_end)
+    sclf = _llm_sentiment_classifier(cfg)
+    _apply_sentiment_labels(docs, sclf)
+    _apply_sentiment_labels(previous_docs, sclf)
+    model = KeywordAnalysisPipeline().run(
+        docs,
+        previous_docs,
+        m,
+        issue_keywords=cfg.keyword_report.issue_keywords,
+    )
+
+    produced = []
+    base = _basename(m) + "_keyword"
+    charts_dir = os.path.join(out_dir, "charts")
+    charts = KeywordChartRenderer(charts_dir).render_all(model)
+    if "docx" in formats:
+        p = write_keyword_docx(model, os.path.join(out_dir, base + ".docx"), charts=charts)
         produced.append(p)
 
     print("\n생성된 보고서:")
@@ -136,6 +189,19 @@ def _llm_sentiment_classifier(cfg):
     from .llm.sentiment_llm import classify_batch
     log.info("감성 분류: LLM(%s) 배치 모드", cfg.llm_provider)
     return lambda texts: classify_batch(client, texts)
+
+
+def _apply_sentiment_labels(docs, sentiment_classifier):
+    from .analyze import sentiment
+
+    if sentiment_classifier is not None:
+        texts = [d.title + " " + d.body for d in docs]
+        labels = sentiment_classifier(texts)
+        for doc, label in zip(docs, labels):
+            doc.sentiment = label
+        return
+    for doc in docs:
+        doc.sentiment = sentiment.classify(doc.title + " " + doc.body)
 
 
 def _run_youtube(meta, mode: str, project_root: str):
@@ -174,6 +240,8 @@ def main(argv=None):
     r.add_argument("--config", required=True, help="실행 설정 YAML 경로")
     r.add_argument("--out", default="output", help="출력 디렉터리")
     r.add_argument("--formats", default="docx,html,md", help="출력 형식 (docx,html,md,json)")
+    r.add_argument("--report-type", choices=["default", "keyword"], default="default",
+                   help="보고서 타입 선택")
     r.add_argument("--youtube", choices=["none", "mock", "live"], default="none",
                    help="유튜브 채널 섹션 포함 (mock=키없이 시연, live=YOUTUBE_API_KEY 사용)")
     r.set_defaults(func=run)
