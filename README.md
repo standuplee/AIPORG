@@ -105,6 +105,7 @@ export GEMINI_API_KEY=...   # 또는 OPENAI_API_KEY
 | 수집기 | 필요 환경변수 |
 |---|---|
 | naver_news, naver_blog | `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` |
+| daum_news | `KAKAO_REST_API_KEY` |
 | youtube | `YOUTUBE_API_KEY` |
 | x | `X_BEARER_TOKEN` |
 | instagram | `IG_ACCESS_TOKEN` |

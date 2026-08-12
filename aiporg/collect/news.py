@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import os
 from datetime import date, datetime
+from urllib.parse import urlparse
 from urllib.parse import quote
 
 from ..models import Channel, Document
@@ -112,14 +113,64 @@ class NaverNewsCollector(BaseCollector):
 
 
 class DaumNewsCollector(BaseCollector):
-    """다음 뉴스 수집기 (사내 커넥터/스크래퍼 연동 지점)."""
+    """카카오 웹검색 API 기반 다음 뉴스 수집기.
+
+    KAKAO_REST_API_KEY 환경변수가 있으면 동작한다.
+    web 검색 결과 전체를 받되, `news.daum.net` 과 `v.daum.net` 링크만 허용한다.
+    """
 
     name = "daum_news"
     channel = Channel.NEWS
 
     def collect(self, keywords: list[str], start: date, end: date) -> list[Document]:
-        # 다음은 공식 검색 API 종료. Lucy 커넥터 또는 별도 스크래퍼 연동 필요.
-        return []
+        api_key = os.environ.get("KAKAO_REST_API_KEY")
+        if not api_key:
+            return []
+        import requests
+
+        docs: list[Document] = []
+        headers = {"Authorization": f"KakaoAK {api_key}"}
+        allowed_hosts = {"news.daum.net", "v.daum.net"}
+        for kw in keywords[:3]:
+            for page in range(1, 4):
+                r = requests.get(
+                    "https://dapi.kakao.com/v2/search/web",
+                    params={"query": kw, "size": 50, "page": page, "sort": "recency"},
+                    headers=headers,
+                    timeout=self.timeout,
+                )
+                if r.status_code != 200:
+                    break
+                payload = r.json()
+                items = payload.get("documents", [])
+                if not items:
+                    break
+                stop = False
+                for item in items:
+                    link = item.get("url", "")
+                    if urlparse(link).netloc not in allowed_hosts:
+                        continue
+                    pub = _parse_kakao_datetime(item.get("datetime"))
+                    if pub:
+                        if pub.date() > end:
+                            continue
+                        if pub.date() < start:
+                            stop = True
+                            continue
+                    title = _strip(item.get("title", ""))
+                    body = _strip(item.get("contents", ""))
+                    docs.append(Document(
+                        doc_id=_doc_id(link),
+                        channel=self.channel,
+                        title=title,
+                        body=body,
+                        url=link,
+                        published_at=pub,
+                        matched_keywords=[kw],
+                    ))
+                if stop or payload.get("meta", {}).get("is_end", False):
+                    break
+        return docs
 
 
 def _parse_pubdate(value):
@@ -129,6 +180,15 @@ def _parse_pubdate(value):
     try:
         from email.utils import parsedate_to_datetime
         return parsedate_to_datetime(value).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def _parse_kakao_datetime(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value).replace(tzinfo=None)
     except Exception:
         return None
 
