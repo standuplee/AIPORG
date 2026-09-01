@@ -18,6 +18,7 @@ lxml==6.1.1
 fastapi>=0.110
 uvicorn>=0.29
 pydantic>=2.6
+alembic>=1.13
 
 # YouTube 분석 (키워드 추출)
 kiwipiepy>=0.17
