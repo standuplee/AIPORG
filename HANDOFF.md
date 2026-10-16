@@ -27,7 +27,7 @@ AIPORG 전용 보고서 목차·표지·서식·차트 PNG 배치와 형식별 �
 - AIPORG 2.0 진행 기록: `docs/superpowers/plans/2026-09-08-aiporg2-implementation.md`. 마지막 "진행 기록"(8절, 날짜 기준)은 Phase 5 완료(2026-09-21)지만, **그 뒤에 추가된 "2026-10-16" 절들(코드 검증 기반 상세 구현 계획 → 사용자 결정 반영 3차 → Streamlit 콘솔 MVP(4차) → 수집 정확도·파이프라인 연결(5차))이 실제 현재 상태다.** Phase 완료 기록만 보고 기능이 끝났다고 판단하지 말 것.
 - **Streamlit 콘솔이 수집→정제→중복제거→Evidence→이슈 확정→통계 집계→narrative 초안까지 전부 실제로 연결됐다(9차).** `streamlit_app/console.py` — 아래 "Streamlit 실행 방법" 참고. 8화면 중 1~5는 실제 repository/service/workflow를 호출하는 동작 코드이고, 6~8(시각자료/보고서 미리보기/출력)만 "미구현" 패널이다. 화면 1·3은 DB에서 직접 조회해 앱 재시작 후에도 유지된다. **단일 fixture collector로 "프로젝트 생성 → 키워드 수집 → 이슈 확정 → 통계 집계 → narrative 초안 생성·저장·표시"까지 끊기지 않고 끝까지 실행되는 것을 `AppTest`로 직접 확인했다** — 이게 지금까지 이 세션에서 만든 가장 긴 실제 수직 흐름이다.
 - **9차 — 화면 4(통계·이슈 검토) 확장:** "이슈 확정 실행" 버튼(`EvidenceToIssuesWorkflow`, `EVIDENCE_COMPLETED`에서만 보임), "통계 집계 실행" 버튼(`IssuesToAnalyticsWorkflow`, `ISSUES_COMPLETED`에서만 보임)을 추가했다. 공식 출처 목록 UI가 없어 전부 "비공식 출처"로 판정한다(복수 독립 출처 조건으로만 fact 검증 통과) — 공식 출처 정책은 여전히 결정 대상.
-- **9차 — 화면 5(서술 편집) 신규 구현:** 이슈를 고르면 그 이슈의 fact·최신 AnalyticsSnapshot·전체 Evidence로 `NarrativeContext`를 만들고, `AIPORG2_GEMINI_API_KEY`가 있으면 `GeminiNarrativeAdapter`, 없으면 결정론적 템플릿(`TemplateNarrativeService.render_fact`를 그대로 재사용 — 새 템플릿 로직을 안 만들고 기존 엄격한 근거-원문 대조 검증을 그대로 씀)으로 초안을 만들어 `NarrativeRepository.save_output`으로 저장한다. 저장된 최신 초안은 문장별 근거(fact/evidence/document 수, analytics 경로)와 함께 화면에 표시된다. **초안은 이슈별이 아니라 프로젝트 단위로 저장된다** — 다른 이슈로 다시 생성하면 그게 새 최신 버전이 된다(narrative-design.md의 기존 설계를 그대로 따름, 이번에 새로 만든 제약 아님).
+- **9차 — 화면 5(서술 편집) 신규 구현, 10차에서 수정·버전 비교 추가:** 이슈를 고르면 그 이슈의 fact·최신 AnalyticsSnapshot·전체 Evidence로 `NarrativeContext`를 만들고, `AIPORG2_GEMINI_API_KEY`가 있으면 `GeminiNarrativeAdapter`, 없으면 결정론적 템플릿(`TemplateNarrativeService.render_fact`를 그대로 재사용 — 새 템플릿 로직을 안 만들고 기존 엄격한 근거-원문 대조 검증을 그대로 씀)으로 초안을 만들어 `NarrativeRepository.save_output`으로 저장한다. **초안은 이슈별이 아니라 프로젝트 단위로 저장된다** — 다른 이슈로 다시 생성하면 그게 새 버전이 된다(narrative-design.md의 기존 설계를 그대로 따름). 신규 `NarrativeRepository.list_outputs()`(조회 전용, 신규 schema 아님)로 **버전 목록·보기·문장 수정(새 버전으로 저장, 근거 참조는 그대로 유지)·두 버전 나란히 비교**를 추가했다(10차). "최종 승인" 버튼은 **의도적으로 비활성화해뒀다** — Visualization/Report 계약(M0)이 결정돼야 narrative 버전+analytics+시각자료+템플릿 버전을 함께 묶어 승인할 수 있는데 그 계약이 아직 없어서, 가짜로 승인 상태를 만들지 않는다.
 - **naver collector 페이지네이션 추가(5차):** `app/collectors/naver_news.py`가 `start=1,display=100` 고정 단일 요청만 하던 걸 `start<=1000`까지 페이징하도록 고쳤다 — 코드 재확인 중 `daum_news.py`는 이미 `meta.is_end`까지 전체 페이징하고 있었다는 걸 재확인(이전 세션 "둘 다 단일 요청" 서술은 daum 쪽이 부정확했음, 정정함). 이제 바쁜 키워드도 월 전체 기사를 한 페이지(100건)에서 자르지 않는다.
 - **신규 `MultiQueryCollectionToEvidenceWorkflow`(5차, `app/workflows/multi_query_collection_to_evidence.py`):** 기존 `CollectionToEvidenceWorkflow`는 project당 query 1개만 받아 workflow state를 전진시키는 구조라 키워드 N개 fan-out에 못 쓴다(state machine이 각 상태를 한 번만 허용). 새 workflow는 키워드×채널 조합 전체를 먼저 수집하고, `COLLECTION_RUNNING`/`COLLECTION_COMPLETED`를 한 번만 거친 뒤, **그 배치에서 수집된 raw document 전체의 합집합**에 대해 정제·중복제거·Evidence를 한 번에 수행한다 — 이게 "네이버와 구글에서 같은 기사를 발견해도 기사 한 건" 요구의 핵심이다(같은 URL이 다른 키워드에서 또 발견되면 `upsert_raw`가 canonical_url 기준으로 같은 행에 덮어쓰므로 문서 수가 늘지 않고, 그래도 남는 제목/본문 중복은 `DeduplicationService`가 추가로 잡는다). 통합 테스트로 "두 키워드에서 같은 URL이 나와도 문서 1건, 각자 고유 URL은 그대로 보존"을 실제 SQLite로 검증함.
 - 이 workflow도 **한 번만** `QUERIES_READY → ... → EVIDENCE_COMPLETED`를 거친다(기존 workflow와 동일한 설계 제약). 즉 **같은 프로젝트에서 수집을 두 번 실행할 수 없다** — 키워드를 바꿔 다시 돌리려면 새 프로젝트를 만들어야 한다. Streamlit 콘솔의 "2. 수집 설정·실행" 화면은 이 상태를 확인해서, 이미 수집한 프로젝트에서는 폼을 숨기고 안내만 보여준다.
@@ -107,12 +107,11 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 
 ## 정확한 다음 행동
 
-1. 사용자 수정·버전 비교·승인 UI를 "5. 서술 편집"에 추가한다 — 지금은 생성·저장·조회만 되고, 문장을 고쳐 새 버전으로 저장하거나 버전을 비교하거나 승인하는 기능이 없다(narrative-design.md의 "매 수정마다 새 run 저장" 설계를 그대로 따르면 됨 — `save_output`을 다시 호출하면 됨, 계약은 이미 있음).
-2. 구글 수집기를 신규로 만든다(1.0에도 코드 없음 — 2026-10-16 결정으로 범위 포함됨). 커뮤니티(클리앙/디시/펨코/루리웹/더쿠)·블로그는 1.0 코드를 2.0 계약으로 포팅한다(유튜브는 7차에서 이미 포팅함). 전부 `MultiQueryCollectionToEvidenceWorkflow`의 `CollectionRequest.collector`로 바로 꽂을 수 있는 구조다.
-3. 댓글 수집 컨벤션(`metadata["document_type"]="comment"`, `parent_document_id`)을 실제 collector에 구현한다.
-4. Visualization·Report의 시각 자산 버전/승인 저장 계약을 명시적으로 결정한다(Narrative 출력 계약은 8차에서 이미 결정·구현함 — 구현 계획 §2, §7 결정 목록 중 미해결: HWPX 자산 확보, Visualization/Report 계약, 1.0 수집기 포팅 범위, 공식 출처 정책).
-5. 시각 자료 2종(채널 도넛, TOP10 카드)만 편집 UI에 연결 → HWPX 3쪽(표지/목차/요약) 시제품 순으로 1차 최소 단위를 넓힌다(구현 계획 §6).
-6. 별도 python-hwpx를 연결하고 7월 보고서의 대표 페이지 시제품을 실제 한컴에서 검증한다.
+1. 구글 수집기를 신규로 만든다(1.0에도 코드 없음 — 2026-10-16 결정으로 범위 포함됨). 커뮤니티(클리앙/디시/펨코/루리웹/더쿠)·블로그는 1.0 코드를 2.0 계약으로 포팅한다(유튜브는 7차에서 이미 포팅함). 전부 `MultiQueryCollectionToEvidenceWorkflow`의 `CollectionRequest.collector`로 바로 꽂을 수 있는 구조다.
+2. 댓글 수집 컨벤션(`metadata["document_type"]="comment"`, `parent_document_id`)을 실제 collector에 구현한다.
+3. Visualization·Report의 시각 자산 버전/승인 저장 계약을 명시적으로 결정한다(Narrative 출력 계약은 8차에서 이미 결정·구현함 — 구현 계획 §2, §7 결정 목록 중 미해결: HWPX 자산 확보, Visualization/Report 계약, 1.0 수집기 포팅 범위, 공식 출처 정책). 이게 결정되면 "5. 서술 편집"의 비활성화된 "최종 승인" 버튼을 실제로 연결할 수 있다.
+4. 시각 자료 2종(채널 도넛, TOP10 카드)만 편집 UI에 연결 → HWPX 3쪽(표지/목차/요약) 시제품 순으로 1차 최소 단위를 넓힌다(구현 계획 §6).
+5. 별도 python-hwpx를 연결하고 7월 보고서의 대표 페이지 시제품을 실제 한컴에서 검증한다.
 
 ## 확정된 결정 (2026-10-16)
 
@@ -385,6 +384,42 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 
 작업을 이어받는 도구는 완료 작업·변경 파일·검증 결과·막힌 점·다음 행동을 이 문서에 최신 상태로 갱신한다. 채팅 원문이나 비밀값은 기록하지 않는다.
 
+## 이번 작업과 검증 (2026-10-16, 10차: 서술 수정·버전 비교, 승인은 의도적 미구현)
+
+사용자가 "ㅇㅇ 다음 순번 진행"으로 9차 끝에 정리한 "정확한 다음 행동" 1번
+(사용자 수정·버전 비교·승인 UI)을 승인했다.
+
+- **신규 `NarrativeRepository.list_outputs(project_id)`**(조회 전용, 신규
+  schema 아님) — 프로젝트의 모든 narrative 출력 버전을 반환한다.
+  `get_latest_output()`과 같은 이유로 DB `created_at`이 아니라 각 버전의
+  `run.created_at`으로 정렬한다(SQLite 1초 해상도 문제, 8차에서 이미 고친
+  것과 동일 패턴). unit test 1개 추가(`list_outputs`가 최신순으로 두 버전을
+  정확히 반환하는지).
+- **"5. 서술 편집" 확장:** 버전 선택 드롭다운(버전명·시각·생성방식) → 선택한
+  버전의 문장을 보여주고, 각 문장을 `st.text_area`로 수정할 수 있는 폼 추가.
+  "수정 저장"을 누르면 **새 버전**(`output_version=f"edited-from:{이전
+  버전}"`, `generation=None`, fact/evidence/document/analytics 참조는
+  그대로 유지, 텍스트만 교체)으로 저장된다 — 이전 버전은 지워지지 않는다.
+  빈 문장은 저장을 막는다.
+- **버전 비교:** 버전이 2개 이상이면 두 개를 골라 나란히 보여주는 2열
+  비교 화면을 추가했다(진짜 텍스트 diff는 아니고 단순 나란히 보기).
+- **"최종 승인" 버튼을 의도적으로 비활성화 상태로만 추가했다.** 가짜로
+  승인 상태를 저장하지 않는다 — narrative-design.md의 기존 설계(승인은
+  narrative 버전+analytics_run_id+시각자료 버전+템플릿 버전을 함께 묶어서
+  Report 계약 쪽에서 처리)를 따르려면 Visualization/Report 계약(M0)이 먼저
+  결정돼야 한다는 설명을 캡션으로 달아뒀다. 이건 이번에 새로 발견한 제약이
+  아니라 8차에서 이미 기록해둔 설계를 UI에 반영한 것뿐이다.
+- **실제로 끝까지 실행해서 검증함:** 기존 fixture 프로젝트(9차에서 만든 것과
+  같은 패턴)로 초안 생성 → 문장 수정 → 저장 → DB에서 두 버전(`template:v1`,
+  `edited-from:template:v1`)이 각각 원본/수정 텍스트로 올바르게 저장된 것을
+  직접 확인 → 버전 드롭다운이 최신순으로 뜨는 것, 버전 비교 화면이 두 버전의
+  실제 텍스트를 양쪽에 정확히 보여주는 것, "최종 승인" 버튼이 비활성화
+  상태로 렌더링되는 것까지 `AppTest`로 확인했다.
+- 코드 변경은 `app/repositories/{narrative,sqlalchemy}.py`(조회 메서드
+  추가)와 `streamlit_app/console.py`(`_render_narrative_sentences` 헬퍼,
+  `page_narrative` 확장)에 있다. `tests_v2`+`tests` **282 passed**(신규
+  테스트는 기존 narrative 테스트에 assertion 1줄 추가하는 형태라 전체
+  개수는 그대로).
 
 ## 기능 완료 시 커밋·푸시 규칙
 - 기능 단위의 구현과 필요한 테스트가 완료되면 `HANDOFF.md`를 최신 상태로 갱신한 뒤 해당 기능의 변경만 선별하여 커밋하고 원격 브랜치에 푸시한다.

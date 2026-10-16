@@ -243,6 +243,7 @@ def test_downstream_repositories_round_trip_fixed_contracts() -> None:
         })
         narrative_repo.save_output(project.project_id, revised_output)
         assert narrative_repo.get_latest_output(project.project_id) == revised_output
+        assert narrative_repo.list_outputs(project.project_id) == [revised_output, output]
 
         asset = VisualizationAssetSchema(
             visualization_id=uuid4(), project_id=project.project_id,

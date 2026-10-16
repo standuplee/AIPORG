@@ -33,3 +33,11 @@ class NarrativeRepository(SessionScopedRepository, Protocol):
 
     def get_latest_output(self, project_id: ProjectId) -> NarrativeOutputRead | None:
         """Return the most recently saved narrative output version, if any."""
+
+    def list_outputs(self, project_id: ProjectId) -> list[NarrativeOutputRead]:
+        """Return every saved narrative output version, newest first.
+
+        Supports version comparison and restoring/viewing an older draft --
+        ``save_output`` never overwrites a prior version, so the full history
+        is always available here.
+        """

@@ -674,6 +674,20 @@ class SqlAlchemyNarrativeRepository(_Repository):
         # regenerates a draft more than once within the same second.
         return max(outputs, key=lambda output: output.run.created_at)
 
+    def list_outputs(self, project_id: ProjectId) -> list[NarrativeOutputRead]:
+        rows = self.session.scalars(select(Narrative).where(
+            Narrative.project_id == project_id
+        )).all()
+        outputs = [
+            NarrativeOutputSchema.model_validate(row.context["data"])
+            for row in rows
+            if self._is_output_row(row.context)
+        ]
+        # Same reasoning as get_latest_output: order by each version's own
+        # run.created_at, not the DB row's created_at (1-second resolution).
+        outputs.sort(key=lambda output: output.run.created_at, reverse=True)
+        return outputs
+
     @staticmethod
     def _is_output_row(context: object) -> bool:
         return isinstance(context, dict) and context.get("kind") == "narrative_output"

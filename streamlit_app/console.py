@@ -636,6 +636,21 @@ def _template_sentences(
     return sentences
 
 
+def _render_narrative_sentences(output: NarrativeOutputSchema) -> None:
+    for sentence in output.sentences:
+        st.markdown(f"- {sentence.text}")
+        refs = []
+        if sentence.fact_ids:
+            refs.append(f"fact {len(sentence.fact_ids)}건")
+        if sentence.evidence_ids:
+            refs.append(f"evidence {len(sentence.evidence_ids)}건")
+        if sentence.document_ids:
+            refs.append(f"document {len(sentence.document_ids)}건")
+        if sentence.analytics_paths:
+            refs.append("analytics: " + ", ".join(sentence.analytics_paths))
+        st.caption("근거 — " + ", ".join(refs))
+
+
 def page_narrative(factory: sessionmaker) -> None:
     st.header("5. 서술 편집 (LLM 초안)")
     project_id_str = _require_active_project()
@@ -749,32 +764,87 @@ def page_narrative(factory: sessionmaker) -> None:
         st.rerun()
 
     st.divider()
-    st.subheader("최신 저장 초안")
+    st.subheader("저장된 버전")
     st.caption(
-        "초안은 프로젝트 단위로 저장된다(이슈별 저장이 아님) — 가장 최근에 "
-        "생성한 이슈의 초안이 여기 뜬다. 위에서 다른 이슈를 골라 다시 생성하면 "
-        "그게 새 최신 버전이 된다."
+        "초안은 프로젝트 단위로 저장된다(이슈별 저장이 아님) — 위에서 다른 "
+        "이슈를 골라 다시 생성하면 그게 새 버전이 된다. 수정도 새 버전으로 "
+        "저장되며 이전 버전은 지워지지 않는다."
     )
     with session_scope(factory) as session:
-        latest = SqlAlchemyNarrativeRepository(session).get_latest_output(project_id)
-    if latest is None:
+        outputs = SqlAlchemyNarrativeRepository(session).list_outputs(project_id)
+    if not outputs:
         st.info("아직 저장된 초안이 없다.")
         return
 
-    source = f"Gemini({latest.generation.model})" if latest.generation else "템플릿"
-    st.caption(f"생성 방식: {source} · 버전: {latest.run.output_version} · 문장 {len(latest.sentences)}개")
-    for sentence in latest.sentences:
-        st.markdown(f"- {sentence.text}")
-        refs = []
-        if sentence.fact_ids:
-            refs.append(f"fact {len(sentence.fact_ids)}건")
-        if sentence.evidence_ids:
-            refs.append(f"evidence {len(sentence.evidence_ids)}건")
-        if sentence.document_ids:
-            refs.append(f"document {len(sentence.document_ids)}건")
-        if sentence.analytics_paths:
-            refs.append("analytics: " + ", ".join(sentence.analytics_paths))
-        st.caption("근거 — " + ", ".join(refs))
+    def _version_label(output: NarrativeOutputSchema) -> str:
+        source = f"Gemini({output.generation.model})" if output.generation else "템플릿/수정"
+        return f"{output.run.output_version} · {output.run.created_at.isoformat()} · {source}"
+
+    labels = [_version_label(output) for output in outputs]
+
+    st.markdown("**보기 및 수정**")
+    view_index = st.selectbox(
+        "버전 선택", options=range(len(outputs)), format_func=lambda i: labels[i]
+    )
+    viewing = outputs[view_index]
+    _render_narrative_sentences(viewing)
+
+    with st.form("edit_narrative_form"):
+        st.caption("문장 내용만 고칠 수 있다(근거 참조는 그대로 유지됨). 저장하면 새 버전이 된다.")
+        edited_texts = [
+            st.text_area(f"문장 {i + 1}", value=sentence.text, key=f"edit-{view_index}-{i}")
+            for i, sentence in enumerate(viewing.sentences)
+        ]
+        save_edit = st.form_submit_button("수정 저장 (새 버전)")
+
+    if save_edit:
+        if any(not text.strip() for text in edited_texts):
+            st.error("빈 문장은 저장할 수 없다.")
+        else:
+            edited = viewing.model_copy(update={
+                "run": VersionedRunSchema(
+                    run_id=uuid4(),
+                    input_version=viewing.run.output_version,
+                    output_version=f"edited-from:{viewing.run.output_version}",
+                    created_at=datetime.now(timezone.utc),
+                ),
+                "generation": None,
+                "sentences": [
+                    sentence.model_copy(update={"text": text.strip()})
+                    for sentence, text in zip(viewing.sentences, edited_texts)
+                ],
+            })
+            with session_scope(factory) as session:
+                SqlAlchemyNarrativeRepository(session).save_output(project_id, edited)
+            st.success("수정본이 새 버전으로 저장됐다.")
+            st.rerun()
+
+    st.divider()
+    st.subheader("승인")
+    st.button("최종 승인", disabled=True)
+    st.caption(
+        "승인은 narrative 버전 하나만으로 확정하지 않는다 — Visualization/"
+        "Report 계약(M0, 아직 결정 전)에서 narrative 버전 + analytics_run_id + "
+        "시각 자료 버전 + 템플릿 버전을 함께 묶어 처리하기로 설계돼 있다"
+        "(`docs/aiporg2/narrative-design.md`). 그 계약이 없어 지금은 버튼만 "
+        "두고 비활성화했다 — 가짜로 승인 상태를 저장하지 않는다."
+    )
+
+    if len(outputs) >= 2:
+        st.divider()
+        st.subheader("버전 비교")
+        col_a, col_b = st.columns(2)
+        index_a = col_a.selectbox(
+            "버전 A", options=range(len(outputs)), format_func=lambda i: labels[i], key="compare_a"
+        )
+        index_b = col_b.selectbox(
+            "버전 B", options=range(len(outputs)), format_func=lambda i: labels[i],
+            index=min(1, len(outputs) - 1), key="compare_b",
+        )
+        with col_a:
+            _render_narrative_sentences(outputs[index_a])
+        with col_b:
+            _render_narrative_sentences(outputs[index_b])
 
 
 def page_not_implemented(title: str, reason: str) -> None:
