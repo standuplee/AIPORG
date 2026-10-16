@@ -25,7 +25,9 @@ AIPORG 전용 보고서 목차·표지·서식·차트 PNG 배치와 형식별 �
 ## 현재 구현 상태와 제약
 
 - AIPORG 2.0 진행 기록: `docs/superpowers/plans/2026-09-08-aiporg2-implementation.md`. 마지막 "진행 기록"(8절, 날짜 기준)은 Phase 5 완료(2026-09-21)지만, **그 뒤에 추가된 "2026-10-16" 절들(코드 검증 기반 상세 구현 계획 → 사용자 결정 반영 3차 → Streamlit 콘솔 MVP(4차) → 수집 정확도·파이프라인 연결(5차))이 실제 현재 상태다.** Phase 완료 기록만 보고 기능이 끝났다고 판단하지 말 것.
-- **Streamlit 콘솔이 실제로 동작하고, 수집→정제→중복제거→Evidence가 끝까지 연결됐다.** `streamlit_app/console.py` — 아래 "Streamlit 실행 방법" 참고. 8화면 중 1(프로젝트)·2(수집 실행)·3(수집 결과·진행상황)·4(통계: canonical 문서/Evidence 수 확인용)는 실제 repository/service를 호출하는 동작 코드이고, 5~8(서술/시각자료/보고서 미리보기/출력)은 왜 아직 안 되는지 명시한 "미구현" 패널이다. 화면 1·3은 이제 DB에서 직접 조회해 **앱 재시작 후에도 유지**된다(5차에서 해결, 이전엔 세션 상태뿐이었음).
+- **Streamlit 콘솔이 수집→정제→중복제거→Evidence→이슈 확정→통계 집계→narrative 초안까지 전부 실제로 연결됐다(9차).** `streamlit_app/console.py` — 아래 "Streamlit 실행 방법" 참고. 8화면 중 1~5는 실제 repository/service/workflow를 호출하는 동작 코드이고, 6~8(시각자료/보고서 미리보기/출력)만 "미구현" 패널이다. 화면 1·3은 DB에서 직접 조회해 앱 재시작 후에도 유지된다. **단일 fixture collector로 "프로젝트 생성 → 키워드 수집 → 이슈 확정 → 통계 집계 → narrative 초안 생성·저장·표시"까지 끊기지 않고 끝까지 실행되는 것을 `AppTest`로 직접 확인했다** — 이게 지금까지 이 세션에서 만든 가장 긴 실제 수직 흐름이다.
+- **9차 — 화면 4(통계·이슈 검토) 확장:** "이슈 확정 실행" 버튼(`EvidenceToIssuesWorkflow`, `EVIDENCE_COMPLETED`에서만 보임), "통계 집계 실행" 버튼(`IssuesToAnalyticsWorkflow`, `ISSUES_COMPLETED`에서만 보임)을 추가했다. 공식 출처 목록 UI가 없어 전부 "비공식 출처"로 판정한다(복수 독립 출처 조건으로만 fact 검증 통과) — 공식 출처 정책은 여전히 결정 대상.
+- **9차 — 화면 5(서술 편집) 신규 구현:** 이슈를 고르면 그 이슈의 fact·최신 AnalyticsSnapshot·전체 Evidence로 `NarrativeContext`를 만들고, `AIPORG2_GEMINI_API_KEY`가 있으면 `GeminiNarrativeAdapter`, 없으면 결정론적 템플릿(`TemplateNarrativeService.render_fact`를 그대로 재사용 — 새 템플릿 로직을 안 만들고 기존 엄격한 근거-원문 대조 검증을 그대로 씀)으로 초안을 만들어 `NarrativeRepository.save_output`으로 저장한다. 저장된 최신 초안은 문장별 근거(fact/evidence/document 수, analytics 경로)와 함께 화면에 표시된다. **초안은 이슈별이 아니라 프로젝트 단위로 저장된다** — 다른 이슈로 다시 생성하면 그게 새 최신 버전이 된다(narrative-design.md의 기존 설계를 그대로 따름, 이번에 새로 만든 제약 아님).
 - **naver collector 페이지네이션 추가(5차):** `app/collectors/naver_news.py`가 `start=1,display=100` 고정 단일 요청만 하던 걸 `start<=1000`까지 페이징하도록 고쳤다 — 코드 재확인 중 `daum_news.py`는 이미 `meta.is_end`까지 전체 페이징하고 있었다는 걸 재확인(이전 세션 "둘 다 단일 요청" 서술은 daum 쪽이 부정확했음, 정정함). 이제 바쁜 키워드도 월 전체 기사를 한 페이지(100건)에서 자르지 않는다.
 - **신규 `MultiQueryCollectionToEvidenceWorkflow`(5차, `app/workflows/multi_query_collection_to_evidence.py`):** 기존 `CollectionToEvidenceWorkflow`는 project당 query 1개만 받아 workflow state를 전진시키는 구조라 키워드 N개 fan-out에 못 쓴다(state machine이 각 상태를 한 번만 허용). 새 workflow는 키워드×채널 조합 전체를 먼저 수집하고, `COLLECTION_RUNNING`/`COLLECTION_COMPLETED`를 한 번만 거친 뒤, **그 배치에서 수집된 raw document 전체의 합집합**에 대해 정제·중복제거·Evidence를 한 번에 수행한다 — 이게 "네이버와 구글에서 같은 기사를 발견해도 기사 한 건" 요구의 핵심이다(같은 URL이 다른 키워드에서 또 발견되면 `upsert_raw`가 canonical_url 기준으로 같은 행에 덮어쓰므로 문서 수가 늘지 않고, 그래도 남는 제목/본문 중복은 `DeduplicationService`가 추가로 잡는다). 통합 테스트로 "두 키워드에서 같은 URL이 나와도 문서 1건, 각자 고유 URL은 그대로 보존"을 실제 SQLite로 검증함.
 - 이 workflow도 **한 번만** `QUERIES_READY → ... → EVIDENCE_COMPLETED`를 거친다(기존 workflow와 동일한 설계 제약). 즉 **같은 프로젝트에서 수집을 두 번 실행할 수 없다** — 키워드를 바꿔 다시 돌리려면 새 프로젝트를 만들어야 한다. Streamlit 콘솔의 "2. 수집 설정·실행" 화면은 이 상태를 확인해서, 이미 수집한 프로젝트에서는 폼을 숨기고 안내만 보여준다.
@@ -95,9 +97,9 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 | --- | --- | --- |
 | Phase 0~2 | 1.0과 분리한 `app/` 계약·상태 머신, 테스트 환경, DB migration·repository 구현 | 완료, 2026-10-16 재확인(254 passed) |
 | Phase 3 | 수집 → 정제·중복 제거 → Evidence 저장과 실패 후 재개 | 네이버/다음/유튜브, Streamlit에서 키워드 N개 fan-out까지 실제로 동작(5·7차). 구글/커뮤니티/블로그·댓글은 미구현 |
-| Phase 4 | Evidence → 검증된 Fact → Issue 확정과 출처 역추적 | 기록상 완료 |
-| Phase 5 | canonical 문서 기준 언급량·채널·키워드·감성·비교기간 집계와 AnalyticsSnapshot | 기록상 완료 |
-| Phase 6 | GPT/Claude 서술 초안, 근거·수치 검증, 초안·수정·승인 버전 저장, Streamlit 검수 UI | 템플릿 서술 일부 + Streamlit 콘솔 화면 1~3 동작; 나머지 미구현 |
+| Phase 4 | Evidence → 검증된 Fact → Issue 확정과 출처 역추적 | 기록상 완료, Streamlit "이슈 확정 실행" 버튼으로 실제 실행 확인(9차). 공식 출처 정책 미결정 |
+| Phase 5 | canonical 문서 기준 언급량·채널·키워드·감성·비교기간 집계와 AnalyticsSnapshot | 기록상 완료, Streamlit "통계 집계 실행" 버튼으로 실제 실행 확인(9차) |
+| Phase 6 | GPT/Claude 서술 초안, 근거·수치 검증, 초안·수정·승인 버전 저장, Streamlit 검수 UI | 출력 계약 결정·구현(8차), Gemini 어댑터 구현(8차), Streamlit 화면 1~5 동작(9차)로 초안 생성·저장·표시까지 됨; 사용자 수정·버전 비교·승인 UI는 아직 없음 |
 | Phase 7 | 승인본과 AnalyticsSnapshot에서 차트·보고서 조립, DOCX·Markdown·HWPX 출력 및 실제 HWPX 열림·배치 검증 | 미구현 |
 | Phase 8 | 프로젝트 실행·상태·재시도·승인본·산출물 조회를 위한 API/CLI와 운영 설정 | 미구현 |
 
@@ -105,10 +107,10 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 
 ## 정확한 다음 행동
 
-1. Issue 확정(`app/issues/*`)과 `AnalyticsService`를 Streamlit 콘솔에 연결한다 — 지금 "5. 서술 편집"이 Gemini 어댑터까지 다 준비됐는데도 못 붙은 유일한 이유가 `NarrativeContext`를 만들 입력(Issue/AnalyticsSnapshot)이 콘솔 어디에도 없어서다. 이게 되면 narrative 초안 생성 버튼을 바로 붙일 수 있다.
+1. 사용자 수정·버전 비교·승인 UI를 "5. 서술 편집"에 추가한다 — 지금은 생성·저장·조회만 되고, 문장을 고쳐 새 버전으로 저장하거나 버전을 비교하거나 승인하는 기능이 없다(narrative-design.md의 "매 수정마다 새 run 저장" 설계를 그대로 따르면 됨 — `save_output`을 다시 호출하면 됨, 계약은 이미 있음).
 2. 구글 수집기를 신규로 만든다(1.0에도 코드 없음 — 2026-10-16 결정으로 범위 포함됨). 커뮤니티(클리앙/디시/펨코/루리웹/더쿠)·블로그는 1.0 코드를 2.0 계약으로 포팅한다(유튜브는 7차에서 이미 포팅함). 전부 `MultiQueryCollectionToEvidenceWorkflow`의 `CollectionRequest.collector`로 바로 꽂을 수 있는 구조다.
 3. 댓글 수집 컨벤션(`metadata["document_type"]="comment"`, `parent_document_id`)을 실제 collector에 구현한다.
-4. Visualization·Report의 시각 자산 버전/승인 저장 계약을 명시적으로 결정한다(Narrative 출력 계약은 8차에서 이미 결정·구현함 — 구현 계획 §2, §7 결정 목록 중 미해결: HWPX 자산 확보, Visualization/Report 계약, 1.0 수집기 포팅 범위).
+4. Visualization·Report의 시각 자산 버전/승인 저장 계약을 명시적으로 결정한다(Narrative 출력 계약은 8차에서 이미 결정·구현함 — 구현 계획 §2, §7 결정 목록 중 미해결: HWPX 자산 확보, Visualization/Report 계약, 1.0 수집기 포팅 범위, 공식 출처 정책).
 5. 시각 자료 2종(채널 도넛, TOP10 카드)만 편집 UI에 연결 → HWPX 3쪽(표지/목차/요약) 시제품 순으로 1차 최소 단위를 넓힌다(구현 계획 §6).
 6. 별도 python-hwpx를 연결하고 7월 보고서의 대표 페이지 시제품을 실제 한컴에서 검증한다.
 
@@ -343,6 +345,43 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 - `tests_v2`+`tests` **282 passed**(270 + narrative output schema 6 + Gemini
   adapter 9 + repository 1). 실제 Gemini API 네트워크 호출은 하지 않았다(가짜
   transport로 성공/부분 근거 탈락/전체 탈락/malformed/http 오류 각각 검증).
+
+## 이번 작업과 검증 (2026-10-16, 9차: Issue/Analytics/Narrative를 콘솔에 연결)
+
+사용자가 "다음할일 진행해도 돼"로 8차 끝에 적어둔 1순위(Issue/Analytics를
+콘솔에 연결)를 진행 승인했다.
+
+- **"4. 통계·이슈 검토" 확장:** 기존엔 canonical 문서·Evidence 수만 보여줬다.
+  이제 workflow state에 따라 버튼이 뜬다 — `EVIDENCE_COMPLETED`에서 "이슈
+  확정 실행"(`EvidenceToIssuesWorkflow`), `ISSUES_COMPLETED`에서 "통계 집계
+  실행"(`IssuesToAnalyticsWorkflow`). 확정된 이슈 목록(fact/문서/출처/채널
+  수, 세부 감성)과 AnalyticsSnapshot 전체 metrics(`st.json`)를 보여준다.
+  공식 출처 목록 UI가 없어 전부 "비공식 출처"로 판정한다 — fact 검증은
+  복수 독립 출처 조건으로만 통과한다. 공식 출처 정책은 결정 대상으로
+  새로 추가함.
+- **"5. 서술 편집" 신규 구현:** 이슈 선택 → 해당 이슈의 fact + 최신
+  AnalyticsSnapshot + 전체 Evidence로 `NarrativeContext` 구성(`sentiment`는
+  첫 subissue 것, 없으면 NEUTRAL; `keywords`는 이슈 label만 — 둘 다 현재
+  파이프라인에 더 적절한 소스가 없어서 고른 임시값) → "초안 생성" 버튼.
+  `AIPORG2_GEMINI_API_KEY`가 있으면 `GeminiNarrativeAdapter`, 없으면
+  신규 `_template_sentences()` 헬퍼(새 템플릿을 만들지 않고 기존
+  `TemplateNarrativeService.render_fact()`를 facts별로 직접 호출 — 그
+  메서드의 "claim이 evidence 원문과 정확히 일치해야 한다"는 엄격한 검증을
+  그대로 재사용). 결과는 `NarrativeRepository.save_output`으로 저장하고
+  최신 버전을 문장별 근거 개수와 함께 바로 아래에 표시한다.
+- **실제로 끝까지 실행해서 검증함:** 가짜 collector로 프로젝트 생성 → 키워드
+  수집(채널 1개) → DB에서 `EVIDENCE_COMPLETED` 확인 → 이슈 확정 실행(이슈
+  1건 확정) → 통계 집계 실행(`metrics`에 18개 키 생성 확인) → "5. 서술
+  편집"에서 해당 이슈 선택 → 초안 생성 → 문장 "근거 문서에서 다음 내용이
+  확인됨: 「...」"가 fact 1건 근거로 저장·표시되는 것까지 `AppTest`로 전부
+  확인했다. 이게 이번 세션에서 만든 가장 긴 실제 수직 흐름이다(수집→
+  Evidence→Issue→Analytics→Narrative 초안).
+- 코드 변경은 전부 `streamlit_app/console.py`(새 `page_narrative`,
+  `_template_sentences`, `_state_at_least`/`_WORKFLOW_STATE_ORDER` 헬퍼,
+  `page_analytics` 확장)에 있다 — `app/` core 코드나 schema는 건드리지
+  않았다(8차까지 만든 contract들을 그대로 소비하기만 함). 새 unit test는
+  추가하지 않았다(UI 글루 코드, 이전 라운드들과 같은 이유) — 대신 위처럼
+  `AppTest`로 전체 경로를 수동 검증했다. `tests_v2`+`tests` 282 passed 유지.
 
 작업을 이어받는 도구는 완료 작업·변경 파일·검증 결과·막힌 점·다음 행동을 이 문서에 최신 상태로 갱신한다. 채팅 원문이나 비밀값은 기록하지 않는다.
 

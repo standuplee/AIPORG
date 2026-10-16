@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -45,28 +45,57 @@ import streamlit as st
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from app.analytics.service import AnalyticsService
 from app.cleaning.service import CleaningService
 from app.collectors.daum_news import DaumNewsCollector
 from app.collectors.naver_news import NaverNewsCollector
 from app.collectors.youtube import YouTubeCollector
 from app.core.config import Settings, get_settings
-from app.core.enums import ChannelType, CollectionRunStatus, WorkflowState
+from app.core.enums import (
+    ChannelType,
+    CollectionRunStatus,
+    FactStatus,
+    SentimentLabel,
+    WorkflowState,
+)
 from app.core.state_machine import InvalidStateTransitionError
 from app.db.session import create_session_factory, session_scope
 from app.dedup.service import DeduplicationService
 from app.evidence.service import EvidenceService
+from app.facts.extraction import FactExtractionService
+from app.facts.validation import FactValidationService
+from app.issues.discovery import IssueDiscoveryService
+from app.issues.finalization import IssueFinalizationService
 from app.models.project import Query
+from app.narrative.llm_adapter import GeminiNarrativeAdapter, NarrativeGenerationError
+from app.narrative.template import TemplateNarrativeService
 from app.repositories.sqlalchemy import (
+    SqlAlchemyAnalyticsRepository,
     SqlAlchemyCollectionRunRepository,
     SqlAlchemyDocumentRepository,
     SqlAlchemyDuplicateClusterRepository,
     SqlAlchemyEvidenceRepository,
+    SqlAlchemyFactRepository,
+    SqlAlchemyIssueRepository,
+    SqlAlchemyNarrativeRepository,
     SqlAlchemyProjectRepository,
     SqlAlchemyQuerySetRepository,
 )
-from app.schemas.common import AnalysisPeriodSchema, ComparisonPeriodSchema, TargetSchema
+from app.schemas.common import (
+    AnalysisPeriodSchema,
+    ComparisonPeriodSchema,
+    TargetSchema,
+    VersionedRunSchema,
+)
+from app.schemas.narrative import (
+    NarrativeContext,
+    NarrativeOutputSchema,
+    NarrativeSentenceSchema,
+)
 from app.schemas.project import ProjectCreate
 from app.schemas.query import SearchQuery
+from app.workflows.evidence_to_issues import EvidenceToIssuesWorkflow
+from app.workflows.issues_to_analytics import IssuesToAnalyticsWorkflow
 from app.workflows.multi_query_collection_to_evidence import (
     CollectionRequest,
     MultiQueryCollectionToEvidenceWorkflow,
@@ -84,15 +113,27 @@ PLANNED_PROVIDERS = [
     "구글 검색 (범위 포함, 수집기 미구현 — M1)",
     "커뮤니티: 클리앙/디시인사이드/펨코/루리웹/더쿠 (목록 확정, 수집기 포팅 전 — M1)",
 ]
+
+# app/core/state_machine.py enforces this exact forward-only order; mirrored
+# here only to answer "is this project at least at stage X" for UI gating.
+_WORKFLOW_STATE_ORDER = [
+    WorkflowState.CREATED,
+    WorkflowState.QUERIES_READY,
+    WorkflowState.COLLECTION_RUNNING,
+    WorkflowState.COLLECTION_COMPLETED,
+    WorkflowState.CLEANING_COMPLETED,
+    WorkflowState.EVIDENCE_COMPLETED,
+    WorkflowState.ISSUES_COMPLETED,
+    WorkflowState.ANALYTICS_COMPLETED,
+    WorkflowState.NARRATIVE_COMPLETED,
+    WorkflowState.VISUALS_COMPLETED,
+    WorkflowState.REPORT_COMPLETED,
+]
+
+
+def _state_at_least(current: WorkflowState, target: WorkflowState) -> bool:
+    return _WORKFLOW_STATE_ORDER.index(current) >= _WORKFLOW_STATE_ORDER.index(target)
 NOT_IMPLEMENTED_PAGES = {
-    "서술 편집 (LLM 초안)": (
-        "Gemini 어댑터(`app/narrative/llm_adapter.py`)와 narrative 출력 저장 "
-        "계약(`NarrativeOutputSchema`, `NarrativeRepository.save_output`)은 "
-        "이미 구현·테스트됐다. 이 화면에 아직 못 붙인 이유는 입력 데이터가 "
-        "없어서다 — Issue 확정(`app/issues/*`)과 AnalyticsSnapshot 생성"
-        "(`app/analytics/service.py`)이 이 콘솔 어디에도 연결돼 있지 않아 "
-        "`NarrativeContext`를 만들 수 없다. 수정·버전 비교·승인 UI도 아직 없다."
-    ),
     "시각 자료 편집·승인": (
         "M0에서 Visualization 계약을 결정하기 전까지 구현하지 않는다. "
         "`app/schemas/visualization.py`는 아직 빈 contract다."
@@ -443,17 +484,25 @@ def page_analytics(factory: sessionmaker) -> None:
 
     st.caption(
         "정제·중복 제거·Evidence까지는 '2. 수집 설정·실행'에서 자동으로 연결된다. "
-        "감성 분류·연관 키워드·비교기간 등 전체 AnalyticsSnapshot 집계(M2)는 "
-        "아직 이 화면에 연결하지 않았다 — 아래는 Evidence까지 간 결과의 원자료 확인용이다."
+        "이슈 확정과 통계 집계는 아래 버튼으로 이 화면에서 바로 실행한다. 감성 "
+        "분류는 기존 metadata 라벨 집계뿐이고 연관 키워드는 형태소 분석이 아닌 "
+        "문자 토큰 빈도다(docs/aiporg2/analytics.md 참고) — 보여주는 수치의 산식 "
+        "자체는 M2에서 더 보완해야 한다."
     )
 
     with session_scope(factory) as session:
+        project_repository = SqlAlchemyProjectRepository(session)
+        workflow = project_repository.get_workflow(project_id)
         canonical_documents = SqlAlchemyDocumentRepository(session).list_canonical(project_id)
         evidence = SqlAlchemyEvidenceRepository(session).list_by_project(project_id)
+    if workflow is None:
+        st.error("프로젝트를 찾지 못했다.")
+        return
 
     col1, col2 = st.columns(2)
     col1.metric("고유(canonical) 문서 수", len(canonical_documents))
     col2.metric("Evidence 수", len(evidence))
+    st.caption(f"현재 workflow 상태: `{workflow.workflow_state.value}`")
 
     if not canonical_documents:
         st.info("아직 Evidence까지 도달한 문서가 없다. 먼저 수집을 실행하라.")
@@ -473,6 +522,259 @@ def page_analytics(factory: sessionmaker) -> None:
         ],
         use_container_width=True,
     )
+
+    st.divider()
+    st.subheader("이슈 확정")
+    current = workflow.workflow_state
+    if current is WorkflowState.EVIDENCE_COMPLETED:
+        st.caption(
+            "Evidence에서 결정론적으로 fact를 추출하고(`app/facts/extraction.py`), "
+            "VERIFIED/SUPPORTED 여부를 검증한 뒤(`app/facts/validation.py`) 이슈로 "
+            "묶는다(`app/issues/discovery.py`, `finalization.py`). 공식 출처 목록을 "
+            "설정하는 UI가 아직 없어 전부 '비공식 출처'로 판정한다(복수 독립 출처 "
+            "조건으로만 검증 통과 가능) — 공식 출처 정책은 추후 결정 대상."
+        )
+        if st.button("이슈 확정 실행"):
+            with session_scope(factory) as session:
+                issues_workflow = EvidenceToIssuesWorkflow(
+                    project_repository=SqlAlchemyProjectRepository(session),
+                    document_repository=SqlAlchemyDocumentRepository(session),
+                    evidence_repository=SqlAlchemyEvidenceRepository(session),
+                    fact_repository=SqlAlchemyFactRepository(session),
+                    issue_repository=SqlAlchemyIssueRepository(session),
+                    fact_extraction_service=FactExtractionService(),
+                    fact_validation_service=FactValidationService(),
+                    issue_discovery_service=IssueDiscoveryService(),
+                    issue_finalization_service=IssueFinalizationService(),
+                )
+                try:
+                    issues = issues_workflow.run(project_id)
+                except (ValueError, InvalidStateTransitionError) as exc:
+                    st.error(f"이슈 확정 실패: {exc}")
+                else:
+                    st.success(f"이슈 {len(issues)}건 확정됨.")
+                    st.rerun()
+        return
+    if not _state_at_least(current, WorkflowState.ISSUES_COMPLETED):
+        st.info("이 단계는 Evidence 완료 이후에만 실행할 수 있다.")
+        return
+
+    with session_scope(factory) as session:
+        issues = SqlAlchemyIssueRepository(session).list_by_project(project_id)
+    st.success(f"이슈 {len(issues)}건 확정됨.")
+    st.dataframe(
+        [
+            {
+                "이슈": issue.label,
+                "fact 수": len(issue.fact_ids),
+                "문서 수": issue.document_count,
+                "출처 수": issue.source_count,
+                "채널 수": issue.channel_count,
+                "세부 감성": ", ".join(sorted({s.sentiment.value for s in issue.subissues})),
+            }
+            for issue in issues
+        ],
+        use_container_width=True,
+    )
+
+    st.divider()
+    st.subheader("통계 집계 (AnalyticsSnapshot)")
+    if current is WorkflowState.ISSUES_COMPLETED:
+        if st.button("통계 집계 실행"):
+            with session_scope(factory) as session:
+                analytics_workflow = IssuesToAnalyticsWorkflow(
+                    project_repository=SqlAlchemyProjectRepository(session),
+                    document_repository=SqlAlchemyDocumentRepository(session),
+                    fact_repository=SqlAlchemyFactRepository(session),
+                    issue_repository=SqlAlchemyIssueRepository(session),
+                    analytics_repository=SqlAlchemyAnalyticsRepository(session),
+                    analytics_service=AnalyticsService(),
+                )
+                run = VersionedRunSchema(
+                    run_id=uuid4(),
+                    input_version="issues:v1",
+                    output_version="analytics:v1",
+                    created_at=datetime.now(timezone.utc),
+                )
+                try:
+                    analytics_workflow.run(project_id, run)
+                except (ValueError, InvalidStateTransitionError) as exc:
+                    st.error(f"통계 집계 실패: {exc}")
+                else:
+                    st.success("통계 집계 완료.")
+                    st.rerun()
+        return
+    if not _state_at_least(current, WorkflowState.ANALYTICS_COMPLETED):
+        return
+
+    with session_scope(factory) as session:
+        snapshot = SqlAlchemyAnalyticsRepository(session).get_latest(project_id)
+    if snapshot is not None:
+        st.success("통계 집계 완료됨 — '5. 서술 편집'에서 이슈별 초안을 생성할 수 있다.")
+        st.json(snapshot.metrics)
+
+
+def _template_sentences(
+    context: NarrativeContext,
+    analytics,
+    evidence,
+) -> list[NarrativeSentenceSchema]:
+    """Reuse TemplateNarrativeService's strict, tested per-fact rendering
+    (claim must match the linked evidence excerpt verbatim) rather than
+    reimplementing a second deterministic template."""
+
+    service = TemplateNarrativeService()
+    sentences: list[NarrativeSentenceSchema] = []
+    for fact in context.facts:
+        if fact.status not in {FactStatus.VERIFIED, FactStatus.SUPPORTED}:
+            continue
+        try:
+            text = service.render_fact(fact, analytics, evidence)
+        except ValueError:
+            continue  # not supported by linked evidence text, skip rather than crash the page
+        sentences.append(NarrativeSentenceSchema(text=text, fact_ids=[fact.fact_id]))
+    return sentences
+
+
+def page_narrative(factory: sessionmaker) -> None:
+    st.header("5. 서술 편집 (LLM 초안)")
+    project_id_str = _require_active_project()
+    if project_id_str is None:
+        return
+    project_id = UUID(project_id_str)
+
+    with session_scope(factory) as session:
+        workflow = SqlAlchemyProjectRepository(session).get_workflow(project_id)
+    if workflow is None:
+        st.error("프로젝트를 찾지 못했다.")
+        return
+    if not _state_at_least(workflow.workflow_state, WorkflowState.ANALYTICS_COMPLETED):
+        st.info(
+            "이슈 확정과 통계 집계가 끝나야 서술 초안을 만들 수 있다. "
+            "'4. 통계·이슈 검토'에서 먼저 실행하라."
+        )
+        return
+
+    settings = get_settings()
+    if settings.gemini_api_key:
+        st.caption(
+            "Gemini(`gemini-2.0-flash`)로 초안을 생성한다. 모델이 인용한 fact/"
+            "evidence/document id와 analytics 경로는 실제 입력과 대조해서, 근거 "
+            "없는 문장은 자동으로 버린다(`app/narrative/llm_adapter.py`)."
+        )
+    else:
+        st.caption(
+            "`AIPORG2_GEMINI_API_KEY`가 없어 결정론적 템플릿으로만 생성한다"
+            "(`app/narrative/template.py`) — 근거 문서 원문과 claim이 정확히 "
+            "일치하는 fact만 문장이 된다."
+        )
+
+    with session_scope(factory) as session:
+        issues = SqlAlchemyIssueRepository(session).list_by_project(project_id)
+    if not issues:
+        st.info("확정된 이슈가 없다.")
+        return
+
+    issue_by_id = {str(issue.issue_id): issue for issue in issues}
+    selected_id = st.selectbox(
+        "이슈 선택",
+        options=list(issue_by_id),
+        format_func=lambda key: issue_by_id[key].label,
+    )
+    issue = issue_by_id[selected_id]
+
+    if st.button("초안 생성"):
+        with session_scope(factory) as session:
+            fact_repository = SqlAlchemyFactRepository(session)
+            facts = [
+                fact
+                for fact_id in issue.fact_ids
+                if (fact := fact_repository.get(project_id, fact_id)) is not None
+            ]
+            analytics = SqlAlchemyAnalyticsRepository(session).get_latest(project_id)
+            evidence = SqlAlchemyEvidenceRepository(session).list_by_project(project_id)
+            if analytics is None:
+                st.error("통계 집계 결과가 없다.")
+                return
+
+            sentiment = (
+                issue.subissues[0].sentiment if issue.subissues else SentimentLabel.NEUTRAL
+            )
+            context = NarrativeContext(
+                issue=issue,
+                facts=facts,
+                sentiment=sentiment,
+                keywords=[issue.label],
+                positive_reasons=[],
+                negative_reasons=[],
+            )
+
+            if settings.gemini_api_key:
+                adapter = GeminiNarrativeAdapter(api_key=settings.gemini_api_key)
+                try:
+                    output = asyncio.run(
+                        adapter.generate(
+                            project_id=project_id,
+                            context=context,
+                            analytics=analytics,
+                            evidence=evidence,
+                            analytics_run_id=analytics.run.run_id,
+                        )
+                    )
+                except NarrativeGenerationError as exc:
+                    st.error(f"Gemini 초안 생성 실패: {exc}")
+                    return
+            else:
+                sentences = _template_sentences(context, analytics, evidence)
+                if not sentences:
+                    st.warning(
+                        "템플릿으로 생성 가능한 문장이 없다(근거 원문과 정확히 "
+                        "일치하는 VERIFIED/SUPPORTED fact가 없음)."
+                    )
+                    return
+                output = NarrativeOutputSchema(
+                    project_id=project_id,
+                    run=VersionedRunSchema(
+                        run_id=uuid4(),
+                        input_version="narrative-context:v1",
+                        output_version="template:v1",
+                        created_at=datetime.now(timezone.utc),
+                    ),
+                    analytics_run_id=analytics.run.run_id,
+                    sentences=sentences,
+                )
+
+            SqlAlchemyNarrativeRepository(session).save_output(project_id, output)
+        st.success(f"초안 저장됨 — 문장 {len(output.sentences)}개.")
+        st.rerun()
+
+    st.divider()
+    st.subheader("최신 저장 초안")
+    st.caption(
+        "초안은 프로젝트 단위로 저장된다(이슈별 저장이 아님) — 가장 최근에 "
+        "생성한 이슈의 초안이 여기 뜬다. 위에서 다른 이슈를 골라 다시 생성하면 "
+        "그게 새 최신 버전이 된다."
+    )
+    with session_scope(factory) as session:
+        latest = SqlAlchemyNarrativeRepository(session).get_latest_output(project_id)
+    if latest is None:
+        st.info("아직 저장된 초안이 없다.")
+        return
+
+    source = f"Gemini({latest.generation.model})" if latest.generation else "템플릿"
+    st.caption(f"생성 방식: {source} · 버전: {latest.run.output_version} · 문장 {len(latest.sentences)}개")
+    for sentence in latest.sentences:
+        st.markdown(f"- {sentence.text}")
+        refs = []
+        if sentence.fact_ids:
+            refs.append(f"fact {len(sentence.fact_ids)}건")
+        if sentence.evidence_ids:
+            refs.append(f"evidence {len(sentence.evidence_ids)}건")
+        if sentence.document_ids:
+            refs.append(f"document {len(sentence.document_ids)}건")
+        if sentence.analytics_paths:
+            refs.append("analytics: " + ", ".join(sentence.analytics_paths))
+        st.caption("근거 — " + ", ".join(refs))
 
 
 def page_not_implemented(title: str, reason: str) -> None:
@@ -511,6 +813,8 @@ def main() -> None:
         page_progress(factory)
     elif page == "4. 통계·이슈 검토":
         page_analytics(factory)
+    elif page == "5. 서술 편집 (LLM 초안)":
+        page_narrative(factory)
     else:
         title = page.split(". ", 1)[1]
         page_not_implemented(page, NOT_IMPLEMENTED_PAGES[title])
