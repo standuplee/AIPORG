@@ -36,22 +36,31 @@ import streamlit as st
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from app.collection.service import CollectionService
+from app.cleaning.service import CleaningService
 from app.collectors.daum_news import DaumNewsCollector
 from app.collectors.naver_news import NaverNewsCollector
 from app.core.config import Settings, get_settings
 from app.core.enums import ChannelType, CollectionRunStatus, WorkflowState
+from app.core.state_machine import InvalidStateTransitionError
 from app.db.session import create_session_factory, session_scope
+from app.dedup.service import DeduplicationService
+from app.evidence.service import EvidenceService
 from app.models.project import Query
 from app.repositories.sqlalchemy import (
     SqlAlchemyCollectionRunRepository,
     SqlAlchemyDocumentRepository,
+    SqlAlchemyDuplicateClusterRepository,
+    SqlAlchemyEvidenceRepository,
     SqlAlchemyProjectRepository,
     SqlAlchemyQuerySetRepository,
 )
 from app.schemas.common import AnalysisPeriodSchema, ComparisonPeriodSchema, TargetSchema
 from app.schemas.project import ProjectCreate
 from app.schemas.query import SearchQuery
+from app.workflows.multi_query_collection_to_evidence import (
+    CollectionRequest,
+    MultiQueryCollectionToEvidenceWorkflow,
+)
 
 # label -> settings credential key used to build the real collector.
 IMPLEMENTED_PROVIDERS = ["naver", "daum"]
@@ -169,53 +178,33 @@ def page_project(factory: sessionmaker) -> None:
                         channels=[ChannelType.NEWS],
                     )
                 )
-            projects = st.session_state.setdefault("projects", [])
-            projects.append(
-                {
-                    "id": str(project.project_id),
-                    "name": name,
-                    "start": str(start),
-                    "end": str(end),
-                }
-            )
             st.session_state["active_project_id"] = str(project.project_id)
             st.success(f"프로젝트 생성됨: {project.project_id}")
             st.rerun()
 
-    st.subheader("이번 세션에서 만든 프로젝트")
-    st.caption(
-        "프로젝트 목록을 조회하는 repository 메서드가 아직 없어(known gap), "
-        "이전에 만든 프로젝트는 아래에 UUID를 직접 입력해야 다시 불러올 수 있다."
-    )
-    projects = st.session_state.get("projects", [])
+    st.subheader("저장된 프로젝트")
+    st.caption("DB에 저장된 전체 프로젝트 목록이다 — 앱을 재시작해도 남는다.")
+    with session_scope(factory) as session:
+        project_repository = SqlAlchemyProjectRepository(session)
+        projects = project_repository.list()
+        workflow_states = {
+            item.project_id: project_repository.get_workflow(item.project_id).workflow_state
+            for item in projects
+        }
     if projects:
         for item in projects:
-            selected = item["id"] == st.session_state.get("active_project_id")
-            label = f"{'➡️ ' if selected else ''}{item['name']} ({item['start']} ~ {item['end']}) — `{item['id']}`"
-            if st.button(label, key=f"select-{item['id']}"):
-                st.session_state["active_project_id"] = item["id"]
+            selected = str(item.project_id) == st.session_state.get("active_project_id")
+            state = workflow_states[item.project_id].value
+            label = (
+                f"{'➡️ ' if selected else ''}{item.name} "
+                f"({item.analysis_period.start} ~ {item.analysis_period.end}) "
+                f"[{state}] — `{item.project_id}`"
+            )
+            if st.button(label, key=f"select-{item.project_id}"):
+                st.session_state["active_project_id"] = str(item.project_id)
                 st.rerun()
     else:
         st.info("아직 생성한 프로젝트가 없다.")
-
-    manual_id = st.text_input(
-        "기존 프로젝트 UUID로 전환",
-        value="",
-        placeholder="예: 3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    )
-    if manual_id.strip():
-        try:
-            UUID(manual_id.strip())
-        except ValueError:
-            st.error("올바른 UUID 형식이 아니다.")
-        else:
-            with session_scope(factory) as session:
-                exists = SqlAlchemyProjectRepository(session).get(UUID(manual_id.strip()))
-            if exists is None:
-                st.error("해당 UUID의 프로젝트를 찾지 못했다.")
-            else:
-                st.session_state["active_project_id"] = manual_id.strip()
-                st.success(f"전환됨: {exists.name}")
 
 
 def page_collect(factory: sessionmaker) -> None:
@@ -224,6 +213,20 @@ def page_collect(factory: sessionmaker) -> None:
     if project_id_str is None:
         return
     project_id = UUID(project_id_str)
+
+    with session_scope(factory) as session:
+        workflow = SqlAlchemyProjectRepository(session).get_workflow(project_id)
+    if workflow is None:
+        st.error("프로젝트를 찾지 못했다.")
+        return
+    if workflow.workflow_state not in {WorkflowState.CREATED, WorkflowState.QUERIES_READY}:
+        st.warning(
+            f"이 프로젝트는 이미 수집을 실행했다(현재 상태: `{workflow.workflow_state.value}`). "
+            "프로젝트의 workflow state는 한 번만 전진하는 구조라 같은 프로젝트에서 수집을 "
+            "다시 실행할 수 없다. 키워드를 바꿔 다시 수집하려면 '1. 월별 프로젝트'에서 새 "
+            "프로젝트를 만들어라."
+        )
+        return
 
     settings = get_settings()
     collectors = build_collectors(settings)
@@ -287,55 +290,65 @@ def _run_collection(
 ) -> None:
     queries = [SearchQuery(query=keyword, channels=[ChannelType.NEWS]) for keyword in keywords]
 
+    status_line = st.empty()
+    status_line.write(
+        f"{len(keywords)}개 키워드 × {len(selected_providers)}개 채널 수집 중 "
+        "(완료까지 결과가 보이지 않을 수 있다 — 네트워크 호출 포함)..."
+    )
+
     with session_scope(factory) as session:
         SqlAlchemyQuerySetRepository(session).create(project_id, queries)
         project_repository = SqlAlchemyProjectRepository(session)
-        workflow = project_repository.get_workflow(project_id)
-        if workflow is not None and workflow.workflow_state is WorkflowState.CREATED:
+        snapshot = project_repository.get_workflow(project_id)
+        if snapshot is not None and snapshot.workflow_state is WorkflowState.CREATED:
             project_repository.advance_workflow(project_id, WorkflowState.QUERIES_READY)
         query_rows = session.execute(
             select(Query.id, Query.query).where(Query.project_id == project_id)
         ).all()
-    query_id_by_text = {text: query_id for query_id, text in query_rows}
+        query_id_by_text = {text: query_id for query_id, text in query_rows}
 
-    project_id_str = str(project_id)
-    runs = st.session_state.setdefault("runs", {}).setdefault(project_id_str, [])
-
-    total = len(keywords) * len(selected_providers)
-    progress_bar = st.progress(0.0)
-    status_line = st.empty()
-    done = 0
-
-    for keyword in keywords:
-        query_id = query_id_by_text.get(keyword)
-        if query_id is None:
+        requests = [
+            CollectionRequest(
+                collector=collectors[provider_key],
+                query_id=query_id_by_text[keyword],
+                run_id=uuid4(),
+                query=SearchQuery(query=keyword, channels=[ChannelType.NEWS]),
+            )
+            for keyword in keywords
+            if keyword in query_id_by_text
+            for provider_key in selected_providers
+        ]
+        missing = [keyword for keyword in keywords if keyword not in query_id_by_text]
+        for keyword in missing:
             st.warning(f"'{keyword}'에 대한 query_id를 찾지 못해 건너뜀.")
-            continue
-        for provider_key in selected_providers:
-            run_id = uuid4()
-            status_line.write(f"수집 중: {keyword} / {PROVIDER_LABELS[provider_key]}")
-            with session_scope(factory) as session:
-                service = CollectionService(
-                    collector=collectors[provider_key],
-                    document_repository=SqlAlchemyDocumentRepository(session),
-                    collection_run_repository=SqlAlchemyCollectionRunRepository(session),
-                )
-                try:
-                    asyncio.run(
-                        service.collect(
-                            project_id=project_id,
-                            query_id=query_id,
-                            run_id=run_id,
-                            query=SearchQuery(query=keyword, channels=[ChannelType.NEWS]),
-                        )
-                    )
-                except Exception as exc:  # noqa: BLE001 - surface to the UI, never crash the app
-                    st.error(f"{keyword} / {PROVIDER_LABELS[provider_key]} 수집 실패: {exc}")
-            runs.append({"keyword": keyword, "provider": provider_key, "run_id": str(run_id)})
-            done += 1
-            progress_bar.progress(done / total)
 
-    status_line.write("수집 완료. '3. 수집 결과 검토'에서 진행 상황과 건수를 확인하라.")
+        workflow = MultiQueryCollectionToEvidenceWorkflow(
+            collection_run_repository=SqlAlchemyCollectionRunRepository(session),
+            cleaning_service=CleaningService(),
+            deduplication_service=DeduplicationService(),
+            evidence_service=EvidenceService(),
+            project_repository=SqlAlchemyProjectRepository(session),
+            document_repository=SqlAlchemyDocumentRepository(session),
+            duplicate_cluster_repository=SqlAlchemyDuplicateClusterRepository(session),
+            evidence_repository=SqlAlchemyEvidenceRepository(session),
+        )
+        try:
+            results = asyncio.run(workflow.run(project_id=project_id, requests=requests))
+        except (ValueError, InvalidStateTransitionError) as exc:
+            status_line.write("")
+            st.error(f"수집을 시작할 수 없다: {exc}")
+            return
+
+    failed = [r for r in results if r.status is CollectionRunStatus.FAILED]
+    completed = [r for r in results if r.status is CollectionRunStatus.COMPLETED]
+    status_line.write(
+        f"수집 완료: {len(completed)}개 실행 성공, {len(failed)}개 실패. "
+        "정제·중복 제거·Evidence까지 자동으로 연결됐다. "
+        "'3. 수집 결과 검토'에서 진행 상황과 건수를, "
+        "'4. 통계·이슈 검토'에서 Evidence 결과를 확인하라."
+    )
+    if failed:
+        st.warning(f"{len(failed)}개 실행이 실패했다 — 아래 '3. 수집 결과 검토'에서 상세 확인.")
 
 
 def page_progress(factory: sessionmaker) -> None:
@@ -345,42 +358,34 @@ def page_progress(factory: sessionmaker) -> None:
         return
     project_id = UUID(project_id_str)
 
-    st.caption(
-        "프로젝트의 전체 실행 이력을 조회하는 repository 메서드가 아직 없어(known "
-        "gap), 이 화면은 같은 브라우저 세션에서 '2. 수집 설정·실행'으로 실행한 "
-        "작업만 보여준다. 새로고침 버튼을 눌러 최신 상태를 다시 읽는다."
-    )
-
-    runs = st.session_state.get("runs", {}).get(project_id_str, [])
-    if not runs:
-        st.info("이번 세션에서 실행한 수집 작업이 없다.")
-        return
-
+    st.caption("DB에 저장된 이 프로젝트의 전체 수집 실행 이력이다 — 앱을 재시작해도 남는다.")
     st.button("새로고침")
 
-    rows: list[dict[str, object]] = []
-    source_counts: dict[str, int] = {}
     with session_scope(factory) as session:
-        run_repository = SqlAlchemyCollectionRunRepository(session)
+        runs = SqlAlchemyCollectionRunRepository(session).list_by_project(project_id)
         document_repository = SqlAlchemyDocumentRepository(session)
-        for entry in runs:
-            run_id = UUID(entry["run_id"])
-            run = run_repository.get(project_id, run_id)
-            if run is None:
+        rows = [
+            {
+                "키워드": run.query,
+                "채널": run.channel.value,
+                "상태": run.status.value,
+                "발견": run.documents_found,
+                "저장": run.documents_saved,
+                "오류": run.error_count,
+                "시작": run.started_at.isoformat(),
+            }
+            for run in runs
+        ]
+        source_counts: dict[str, int] = {}
+        for run in runs:
+            if run.status is not CollectionRunStatus.COMPLETED:
                 continue
-            rows.append(
-                {
-                    "키워드": entry["keyword"],
-                    "채널": PROVIDER_LABELS[entry["provider"]],
-                    "상태": run.status.value,
-                    "발견": run.documents_found,
-                    "저장": run.documents_saved,
-                    "오류": run.error_count,
-                }
-            )
-            if run.status is CollectionRunStatus.COMPLETED:
-                for document in document_repository.list_raw_by_collection_run(project_id, run_id):
-                    source_counts[document.source] = source_counts.get(document.source, 0) + 1
+            for document in document_repository.list_raw_by_collection_run(project_id, run.id):
+                source_counts[document.source] = source_counts.get(document.source, 0) + 1
+
+    if not rows:
+        st.info("아직 실행한 수집 작업이 없다. '2. 수집 설정·실행'에서 먼저 실행하라.")
+        return
 
     st.subheader("키워드 × 채널별 진행 상황")
     st.dataframe(rows, use_container_width=True)
@@ -397,12 +402,39 @@ def page_analytics(factory: sessionmaker) -> None:
     project_id_str = _require_active_project()
     if project_id_str is None:
         return
-    st.info(
-        "정제·중복 제거·Evidence 파이프라인이 아직 이 화면과 연결되어 있지 않다"
-        "(M1/M2 예정). '2. 수집 설정·실행'은 원문 수집(raw document)까지만 "
-        "저장하므로, 지금은 보여줄 집계 결과가 없다. 수치를 계산하려면 "
-        "`CollectionToEvidenceWorkflow`와 `AnalyticsService`를 이 UI에서 호출하는 "
-        "작업이 먼저 필요하다."
+    project_id = UUID(project_id_str)
+
+    st.caption(
+        "정제·중복 제거·Evidence까지는 '2. 수집 설정·실행'에서 자동으로 연결된다. "
+        "감성 분류·연관 키워드·비교기간 등 전체 AnalyticsSnapshot 집계(M2)는 "
+        "아직 이 화면에 연결하지 않았다 — 아래는 Evidence까지 간 결과의 원자료 확인용이다."
+    )
+
+    with session_scope(factory) as session:
+        canonical_documents = SqlAlchemyDocumentRepository(session).list_canonical(project_id)
+        evidence = SqlAlchemyEvidenceRepository(session).list_by_project(project_id)
+
+    col1, col2 = st.columns(2)
+    col1.metric("고유(canonical) 문서 수", len(canonical_documents))
+    col2.metric("Evidence 수", len(evidence))
+
+    if not canonical_documents:
+        st.info("아직 Evidence까지 도달한 문서가 없다. 먼저 수집을 실행하라.")
+        return
+
+    st.subheader("고유 문서 목록")
+    st.dataframe(
+        [
+            {
+                "제목": document.title,
+                "출처": document.source,
+                "채널": document.channel.value if document.channel else None,
+                "게시일": document.published_at.isoformat() if document.published_at else None,
+                "URL": document.canonical_url,
+            }
+            for document in canonical_documents
+        ],
+        use_container_width=True,
     )
 
 

@@ -77,44 +77,57 @@ class NaverNewsCollector(BaseCollector):
         self.transport = transport or RequestsTransport()
 
     async def search(self, query: SearchQuery) -> list[SearchResult]:
-        response = await self.transport.get(
-            NAVER_NEWS_URL,
-            params={"query": query.query, "display": 100, "start": 1, "sort": "date"},
-            headers={
-                "X-Naver-Client-Id": self.client_id,
-                "X-Naver-Client-Secret": self.client_secret,
-            },
-        )
-        payload = self._parse_json_response(response, operation="search")
-        items = payload.get("items")
-        if not isinstance(items, list):
-            raise self._malformed("items must be a list")
-
+        # Naver's search API caps a single call at `display<=100` results and
+        # `start<=1000`. The previous implementation only ever requested
+        # start=1, silently discarding everything past the first 100 results
+        # for any keyword with more coverage than that. Page through the full
+        # start<=1000 budget (sort=date keeps paging deterministic) so a
+        # month's worth of articles for a busy keyword is not truncated.
         results: list[SearchResult] = []
-        for index, item in enumerate(items):
-            if not isinstance(item, Mapping):
-                raise self._malformed(f"items[{index}] must be an object")
-            try:
-                title = self._clean_inline(item["title"])
-                link = self._required_string(item.get("originallink")) or self._required_string(
-                    item.get("link")
-                )
-                description = self._clean_inline(item["description"])
-                published_at = self._parse_date(item["pubDate"])
-            except (KeyError, TypeError, ValueError) as exc:
-                raise self._malformed(f"invalid items[{index}] fields: {exc}") from exc
-            if not link or not description:
-                raise self._malformed(f"items[{index}] contains an empty required field")
-            results.append(
-                SearchResult(
-                    source="naver",
-                    channel=ChannelType.NEWS,
-                    title=title,
-                    url=link,
-                    published_at=published_at,
-                    query=query.query,
-                )
+        start = 1
+        display = 100
+        while start <= 1000:
+            response = await self.transport.get(
+                NAVER_NEWS_URL,
+                params={"query": query.query, "display": display, "start": start, "sort": "date"},
+                headers={
+                    "X-Naver-Client-Id": self.client_id,
+                    "X-Naver-Client-Secret": self.client_secret,
+                },
             )
+            payload = self._parse_json_response(response, operation="search")
+            items = payload.get("items")
+            if not isinstance(items, list):
+                raise self._malformed("items must be a list")
+
+            for index, item in enumerate(items):
+                if not isinstance(item, Mapping):
+                    raise self._malformed(f"items[{index}] must be an object")
+                try:
+                    title = self._clean_inline(item["title"])
+                    link = self._required_string(
+                        item.get("originallink")
+                    ) or self._required_string(item.get("link"))
+                    description = self._clean_inline(item["description"])
+                    published_at = self._parse_date(item["pubDate"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise self._malformed(f"invalid items[{index}] fields: {exc}") from exc
+                if not link or not description:
+                    raise self._malformed(f"items[{index}] contains an empty required field")
+                results.append(
+                    SearchResult(
+                        source="naver",
+                        channel=ChannelType.NEWS,
+                        title=title,
+                        url=link,
+                        published_at=published_at,
+                        query=query.query,
+                    )
+                )
+
+            if len(items) < display:
+                break
+            start += display
         return results
 
     async def fetch(self, result: SearchResult) -> RawDocument:

@@ -17,6 +17,9 @@ class ProjectRepository(SessionScopedRepository, Protocol):
     def get(self, project_id: ProjectId) -> ProjectRead | None:
         """Return a project when it exists."""
 
+    def list(self) -> list[ProjectRead]:
+        """Return every persisted project, most recently created first."""
+
     def get_workflow(self, project_id: ProjectId) -> ProjectWorkflowSnapshot | None:
         """Return the current project workflow state."""
 

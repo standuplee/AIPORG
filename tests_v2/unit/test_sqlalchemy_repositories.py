@@ -79,6 +79,10 @@ def test_project_and_query_repositories_are_project_scoped() -> None:
         assert query_repo.get(first.project_id)[0].query == "충남"
         assert query_repo.get(second.project_id) == []
 
+        listed = project_repo.list()
+        assert {item.project_id for item in listed} == {first.project_id, second.project_id}
+        assert first in listed and second in listed
+
         snapshot = project_repo.advance_workflow(
             first.project_id, WorkflowState.QUERIES_READY
         )
@@ -107,6 +111,17 @@ def test_collection_run_and_document_upsert_round_trip() -> None:
         )
         run_repo = SqlAlchemyCollectionRunRepository(session)
         assert run_repo.start(project.project_id, query_id, run) == run
+
+        second_run = CollectionRun(
+            id=uuid4(), project_id=project.project_id, channel=ChannelType.NEWS,
+            query="충남", started_at=now, status=CollectionRunStatus.RUNNING,
+            documents_found=0, documents_saved=0, error_count=0,
+        )
+        run_repo.start(project.project_id, query_id, second_run)
+        assert {item.id for item in run_repo.list_by_project(project.project_id)} == {
+            run.id, second_run.id,
+        }
+        assert run_repo.list_by_project(uuid4()) == []
 
         raw = RawDocument(
             document_id=uuid4(), source="연합뉴스", channel=ChannelType.NEWS,

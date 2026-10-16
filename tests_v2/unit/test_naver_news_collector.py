@@ -83,6 +83,47 @@ def test_search_falls_back_to_link_when_original_link_is_empty() -> None:
     assert result.url == "https://naver/1"
 
 
+def _item(index: int) -> str:
+    return (
+        f'{{"title": "소식 {index}", '
+        f'"link": "https://press.example/{index}", '
+        '"originallink": "", '
+        f'"description": "설명 {index}", '
+        '"pubDate": "Mon, 20 Jul 2026 10:00:00 +0900"}'
+    )
+
+
+def test_search_pages_through_the_full_start_budget_when_a_page_is_full() -> None:
+    first_page = "{\"items\": [" + ",".join(_item(i) for i in range(100)) + "]}"
+    second_page = "{\"items\": [" + _item(100) + "]}"
+    transport = MockTransport(
+        [
+            HttpResponse(status_code=200, headers={}, body=first_page),
+            HttpResponse(status_code=200, headers={}, body=second_page),
+        ]
+    )
+    collector = NaverNewsCollector(client_id="id", client_secret="secret", transport=transport)
+
+    results = asyncio.run(collector.search(search_query()))
+
+    assert len(results) == 101
+    assert [call["params"]["start"] for call in transport.calls] == [1, 101]
+    assert [call["params"]["display"] for call in transport.calls] == [100, 100]
+
+
+def test_search_stops_at_the_naver_api_start_ceiling() -> None:
+    full_page = "{\"items\": [" + ",".join(_item(i) for i in range(100)) + "]}"
+    responses = [HttpResponse(status_code=200, headers={}, body=full_page) for _ in range(10)]
+    transport = MockTransport(responses)
+    collector = NaverNewsCollector(client_id="id", client_secret="secret", transport=transport)
+
+    results = asyncio.run(collector.search(search_query()))
+
+    assert len(results) == 1000
+    assert len(transport.calls) == 10
+    assert transport.calls[-1]["params"]["start"] == 901
+
+
 def test_fetch_normalizes_html_and_uses_deterministic_document_id() -> None:
     response = HttpResponse(
         status_code=200,

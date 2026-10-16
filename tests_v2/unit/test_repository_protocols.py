@@ -58,7 +58,7 @@ def test_repository_protocols_are_session_scoped() -> None:
 
 def test_project_repository_has_schema_typed_create_and_get() -> None:
     assert getattr(ProjectRepository, "_is_protocol", False)
-    assert {"create", "get", "get_workflow", "advance_workflow"} <= set(
+    assert {"create", "get", "list", "get_workflow", "advance_workflow"} <= set(
         ProjectRepository.__dict__
     )
 
@@ -68,6 +68,7 @@ def test_project_repository_has_schema_typed_create_and_get() -> None:
     assert create_hints["project"] is ProjectCreate
     assert create_hints["return"] is ProjectRead
     assert get_hints["return"] == ProjectRead | None
+    assert get_type_hints(ProjectRepository.list)["return"] == list[ProjectRead]
     assert get_type_hints(ProjectRepository.get_workflow)["return"] == (
         ProjectWorkflowSnapshot | None
     )
@@ -75,7 +76,9 @@ def test_project_repository_has_schema_typed_create_and_get() -> None:
 
 def test_queryset_and_collection_run_repositories_use_existing_schemas() -> None:
     assert {"create", "get"} <= set(QuerySetRepository.__dict__)
-    assert {"start", "complete", "get"} <= set(CollectionRunRepository.__dict__)
+    assert {"start", "complete", "get", "list_by_project"} <= set(
+        CollectionRunRepository.__dict__
+    )
 
     assert get_type_hints(QuerySetRepository.create)["queries"] == list[SearchQuery]
     assert get_type_hints(QuerySetRepository.create)["return"] == list[SearchQuery]
@@ -92,6 +95,9 @@ def test_queryset_and_collection_run_repositories_use_existing_schemas() -> None
     assert complete_hints["return"] is CollectionRunRead
     get_hints = get_type_hints(CollectionRunRepository.get)
     assert get_hints["return"] == CollectionRunRead | None
+    assert get_type_hints(CollectionRunRepository.list_by_project)["return"] == list[
+        CollectionRunRead
+    ]
 
 
 def test_document_repository_has_schema_typed_upsert_and_canonical_lookup() -> None:

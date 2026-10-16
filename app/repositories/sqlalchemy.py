@@ -76,6 +76,12 @@ class SqlAlchemyProjectRepository(_Repository):
         row = self.session.get(Project, project_id)
         return _project_read(row) if row is not None else None
 
+    def list(self) -> list[ProjectRead]:
+        rows = self.session.scalars(
+            select(Project).order_by(Project.created_at.desc(), Project.id.desc())
+        ).all()
+        return [_project_read(row) for row in rows]
+
     def get_workflow(self, project_id: ProjectId) -> ProjectWorkflowSnapshot | None:
         row = self.session.get(Project, project_id)
         if row is None:
@@ -188,6 +194,14 @@ class SqlAlchemyCollectionRunRepository(_Repository):
             )
         )
         return _collection_read(row) if row is not None else None
+
+    def list_by_project(self, project_id: ProjectId) -> list[CollectionRunRead]:
+        rows = self.session.scalars(
+            select(CollectionRunModel)
+            .where(CollectionRunModel.project_id == project_id)
+            .order_by(CollectionRunModel.started_at, CollectionRunModel.id)
+        ).all()
+        return [_collection_read(row) for row in rows]
 
 
 class SqlAlchemyDocumentRepository(_Repository):

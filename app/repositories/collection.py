@@ -33,3 +33,6 @@ class CollectionRunRepository(SessionScopedRepository, Protocol):
 
     def get(self, project_id: ProjectId, run_id: RunId) -> CollectionRunRead | None:
         """Return a collection run when it exists for the project."""
+
+    def list_by_project(self, project_id: ProjectId) -> list[CollectionRunRead]:
+        """Return every collection run started for the project, oldest first."""

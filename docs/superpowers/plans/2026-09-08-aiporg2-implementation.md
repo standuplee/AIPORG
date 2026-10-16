@@ -155,10 +155,13 @@ M0~M6는 위 표의 틀을 그대로 쓰고, 각 M에 파일 단위 작업을 �
 - 산출물: 데이터 계약 문서 + 결정 기록. 코드 변경 없음.
 
 **M1. 실제 수집 범위 확보** (M0과 병행 가능)
-1. `app/collectors/naver_news.py`에 페이지 순회(현재 `start=1, display=100` 단일
-   요청) 추가. `app/collectors/daum_news.py`는 이미 `meta.is_end`까지 순회하므로
-   월경계 조기 종료 조건만 추가. `app/collection/service.py`에서 반복 호출
-   orchestration.
+1. ~~`app/collectors/naver_news.py`에 페이지 순회 추가~~ — **완료(2026-10-16,
+   5차)**: `start<=1000`까지 페이징한다. `app/collectors/daum_news.py`는 이미
+   `meta.is_end`까지 순회하므로 월경계 조기 종료 조건만 아직 남아 있음. 키워드
+   N개 반복 호출 orchestration도 **완료**: `app/collection/service.py`가 아니라
+   신규 `app/workflows/multi_query_collection_to_evidence.py`
+   (`MultiQueryCollectionToEvidenceWorkflow`)로 구현했고 Streamlit 콘솔에
+   연결했다(아래 "2026-10-16 수집 정확도와 파이프라인 연결 (5차)" 절 참고).
 2. 구글 수집기를 신규로 만든다(1.0에도 코드가 없다 — 2026-10-16 결정으로 범위에는
    포함됨). 사용 가능한 검색 인터페이스를 먼저 확인한다(5절 참고).
 3. `aiporg/collect/blog.py`, `aiporg/collect/community/*`(clien/dcinside/fmkorea/
@@ -231,7 +234,7 @@ AT-01~21 전체를 최종 수용 기준으로 유지하고 각 M 완료 시 관�
 
 | 플랫폼 | 범위 결정(2026-10-16) | 현재 코드 상태 | 확인할 사항 |
 | --- | --- | --- | --- |
-| 네이버 | 포함 | `app/collectors/naver_news.py`, `start=1, display=100` 고정 단일 요청(페이지 순회 없음) | API 쿼터, 검색 유형별 기간 제한, 페이지당 결과 수, 본문 확보 범위 |
+| 네이버 | 포함 | `app/collectors/naver_news.py`, **2026-10-16 5차에서 `start<=1000`까지 페이지 순회 추가함**(이전엔 단일 요청 100건 한도) | API 쿼터, 검색 유형별 기간 제한, 본문 확보 범위, 월경계 조기 종료(아직 없음) |
 | 다음 | 포함 | `app/collectors/daum_news.py`, `meta.is_end`까지 **이미 페이지 순회함**(정정: 단일 요청 아님). kakao 기반 수집기가 커밋에 별도 존재 | kakao API 키/쿼터, 실제 반환 도메인, 날짜 필터 정확도, 월경계 조기 종료 조건 추가 필요 |
 | 구글 | **포함(결정됨)** | 2.0/1.0 모두 코드 없음 | 사용 가능한 검색 인터페이스(공식 API vs 스크래핑 약관), 검색일-게시일 차이 |
 | X | **제외(결정됨 — 유료 접근 불가 판단)** | 코드 없음 | 재검토 필요 시 API 인증 등급·비용부터 재확인 |
@@ -483,6 +486,85 @@ dict[str, object]`(이미 감성 라벨을 `metadata["sentiment"]`로 저장하�
 폼 제출, 가짜 collector로 수집→조회 경로를 실행해 예외 없이 동작하고 DB에 실제
 행이 쓰이는 것을 확인했다(브라우저 수동 테스트는 하지 않음). 실 네이버/다음
 API 키로의 실제 네트워크 호출은 이번에 하지 않았다.
+
+## 2026-10-16 수집 정확도와 파이프라인 연결 (5차)
+
+사용자 요청: "최대한 정확도 올리는 수집 방향으로. 지금 있는 파이프라인도 한번
+점검해도 좋고, 요구사항에 맞는 데이터 수집이 잘 되는지." 이번 세션은 4차에서
+만든 Streamlit 콘솔을 실제 `streamlit run`으로 실행했을 때 난 import 오류를
+먼저 고치고, 코드를 점검해 발견한 정확도 문제를 수정했다.
+
+**실행 버그 수정:** 실제 `streamlit run streamlit_app/console.py`는
+`ModuleNotFoundError: No module named 'app'`로 실패했다. 4차의 `AppTest` 기반
+검증은 호출 시점의 cwd도 `sys.path`에 넣어줘서 우연히 통과했지만, 실제
+`streamlit run`은 스크립트 자신의 디렉터리만 넣는다. `streamlit_app/console.py`
+맨 위에 `sys.path.insert(0, REPO_ROOT)`를 명시적으로 추가해 cwd와 무관하게
+동작하도록 고치고, cwd를 `/tmp`로 바꾼 채로 재현·검증했다.
+
+**파이프라인 점검 결과:**
+- `app/collectors/naver_news.py`가 `start=1, display=100` 고정 단일 요청만 해서
+  바쁜 키워드의 월간 기사를 최대 100건에서 잘라내고 있었다 — 가장 큰 정확도
+  문제로 보고 수정했다(아래).
+- `app/cleaning/service.py`(URL 정규화: 트래킹 파라미터 제거, scheme/host
+  소문자화, 기본 포트 제거)와 `app/dedup/service.py`(URL exact → 제목 exact →
+  본문 해시 exact, 3단계)는 검토 결과 설계대로 올바르게 동작해 변경하지 않았다.
+- `app/collectors/daum_news.py`는 4차까지의 서술과 달리 이미 `meta.is_end`까지
+  전체 페이징하고 있었다(정정, 위 섹션들에도 반영함).
+
+**수정 1 — naver 페이지네이션:** `app/collectors/naver_news.py`의 `search()`를
+Naver API 한도(`start<=1000`)까지 페이징하도록 바꿨다. unit test 2개 추가
+(`tests_v2/unit/test_naver_news_collector.py`): 여러 페이지 순회, 1000건
+상한에서 정지.
+
+**수정 2 — `MultiQueryCollectionToEvidenceWorkflow` 신규
+(`app/workflows/multi_query_collection_to_evidence.py`):** 기존
+`CollectionToEvidenceWorkflow`는 project당 query 1개만 받고 `WorkflowState`를
+한 번만 전진시키는 구조다(`app/core/state_machine.py`의 각 상태는 정확히 한
+번만 다음 상태로 전진 가능). 이걸 키워드 수만큼 루프 돌리면 두 번째 키워드부터
+`InvalidStateTransitionError`가 난다. 새 workflow는 요청 N개를 전부 수집한 뒤
+`COLLECTION_RUNNING`/`COLLECTION_COMPLETED`를 한 번만 거치고, **그 배치에서
+수집된 raw document 전체의 합집합**에 정제·중복제거·Evidence를 한 번에
+적용한다 — 이게 §3.2 "네이버와 구글에서 같은 기사를 발견해도 기사 한 건" 요구의
+실제 구현이다(같은 URL이 다른 키워드에서도 발견되면 `upsert_raw`가
+canonical_url 기준으로 같은 행에 덮어써서 문서 수가 늘지 않고, 남는 제목/본문
+중복은 `DeduplicationService`가 추가로 잡는다). 기존 `CollectionToEvidenceWorkflow`
+와 똑같이 **project당 한 번만** `QUERIES_READY → EVIDENCE_COMPLETED`를 거치는
+제약은 그대로 유지했다 — 재수집하려면 새 프로젝트가 필요하다(기존 설계와
+동일한 제약을 N개로 확장한 것일 뿐, 새로운 제약을 만들지 않았다).
+
+unit test 3개(빈 요청 거부, `QUERIES_READY` 아닌 상태 거부, 키워드 하나 실패해도
+나머지는 진행해 `EVIDENCE_COMPLETED`까지 도달) + 통합 테스트 1개
+(`tests_v2/integration/test_multi_query_collection_to_evidence_workflow.py`:
+두 키워드에 같은 URL이 섞여 있어도 canonical 문서 3건·Evidence 3건으로 정확히
+collapse되는 것을 실제 SQLite로 검증)를 추가했다.
+
+**수정 3 — repository 조회 메서드:** `ProjectRepository.list()`,
+`CollectionRunRepository.list_by_project()`(둘 다 신규 schema 아닌 조회
+메서드, `app/repositories/{project,collection,sqlalchemy}.py`). Streamlit
+콘솔의 "1. 월별 프로젝트"/"3. 수집 결과 검토"가 세션이 아니라 DB에서 직접
+읽도록 연결해, 앱 재시작 후에도 프로젝트/실행 이력이 남는다(4차의 알려진
+한계 해결).
+
+**Streamlit 콘솔 연결:** "2. 수집 설정·실행"이 `MultiQueryCollectionToEvidenceWorkflow`
+를 호출하도록 바꿨다. 이미 수집을 실행한 프로젝트는 폼을 숨기고 새 프로젝트를
+만들라는 안내만 보여준다. "4. 통계·이슈 검토"는 더 이상 "미연결" 안내뿐이
+아니라 canonical 문서 수·Evidence 수·문서 목록을 실제로 보여준다(전체
+`AnalyticsSnapshot` 집계는 여전히 M2 대상).
+
+**실제 실행 검증:** 가짜 네이버/다음 collector로 Streamlit 콘솔의
+`_run_collection`을 직접 호출해 프로젝트 생성 → 키워드 2개×채널 2개 수집 →
+DB 상태(`EVIDENCE_COMPLETED`, CollectionRun 4건, Document 4건, Evidence
+2건 — 제목 중복 2건이 올바르게 걸러짐)를 sqlite3로 직접 확인했고, `AppTest`로
+화면 1·3·4가 그 데이터를 정확히 보여주는 것도 확인했다. 이 과정에서 또 다른
+버그를 발견·수정함: `_run_collection`을 고치면서 `CREATED → QUERIES_READY`
+전진 호출을 빠뜨렸는데, 새 workflow가 `QUERIES_READY`를 요구해서 조용히
+`InvalidStateTransitionError`로 실패하고 있었다 — 되돌려 고쳤다.
+
+**완료 기준 확인:** `tests_v2`+`tests` **260 passed**(254 + naver 2 +
+multi-query unit 3 + 통합 1). 실 네이버/다음 API 네트워크 호출은 하지 않았다
+(키 미설정 상태로 검증). 신규 schema·DB 테이블·workflow state는 추가하지
+않았다 — repository 조회 메서드와 기존 서비스를 재사용하는 새 orchestration
+class만 추가했다.
 
 ## 1. 목표
 

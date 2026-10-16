@@ -24,13 +24,17 @@ AIPORG 전용 보고서 목차·표지·서식·차트 PNG 배치와 형식별 �
 
 ## 현재 구현 상태와 제약
 
-- AIPORG 2.0 진행 기록: `docs/superpowers/plans/2026-09-08-aiporg2-implementation.md`. 마지막 "진행 기록"(8절, 날짜 기준)은 Phase 5 완료(2026-09-21)지만, **그 뒤에 추가된 "2026-10-16" 절들(코드 검증 기반 상세 구현 계획 → 사용자 결정 반영 3차 → Streamlit 콘솔 MVP와 테스트 환경 확인 4차)이 실제 현재 상태다.** Phase 완료 기록만 보고 기능이 끝났다고 판단하지 말 것 — 아래가 코드 대조 결과다.
-- 코드 확인 결과(2026-10-16): `app/`에 `hwpx`/`openai`/`anthropic`/`gpt`/`llm` 실제 코드가 없다(HWPX·LLM 연동 0%). `app/collectors/naver_news.py`는 `start=1, display=100` 고정 단일 요청만 하고, `app/collectors/daum_news.py`는 `meta.is_end`까지 이미 페이지 순회한다(월경계 조기 종료 조건만 없음). `app/models|schemas/{report,visualization}.py`는 각 20~40줄의 빈 contract뿐이고 렌더링/차트/문서 writer가 없다. 1.0(`aiporg/`)에는 2.0으로 아직 포팅 안 된 차트(`aiporg/charts/*`), DOCX writer(`aiporg/report/docx_writer.py`), 블로그/커뮤니티(`aiporg/collect/*`), 유튜브(`aiporg/youtube/*`) 코드가 있다.
-- **Streamlit 콘솔이 이제 실제로 존재하고 동작한다.** `streamlit_app/console.py` — 아래 "Streamlit 실행 방법" 참고. 8화면 중 1(프로젝트)·2(수집 실행)·3(수집 결과·진행상황)은 실제 repository/service를 호출하는 동작 코드이고, 4(통계)는 아직 연결 안 됐다는 안내만, 5~8(서술/시각자료/보고서 미리보기/출력)은 왜 아직 안 되는지 명시한 "미구현" 패널이다. `streamlit.testing.v1.AppTest`로 8화면 전환과 프로젝트 생성이 예외 없이 동작하고 SQLite에 실제 행이 쓰이는 것까지 확인했다(실 네이버/다음 API 키로의 네트워크 호출은 하지 않음).
+- AIPORG 2.0 진행 기록: `docs/superpowers/plans/2026-09-08-aiporg2-implementation.md`. 마지막 "진행 기록"(8절, 날짜 기준)은 Phase 5 완료(2026-09-21)지만, **그 뒤에 추가된 "2026-10-16" 절들(코드 검증 기반 상세 구현 계획 → 사용자 결정 반영 3차 → Streamlit 콘솔 MVP(4차) → 수집 정확도·파이프라인 연결(5차))이 실제 현재 상태다.** Phase 완료 기록만 보고 기능이 끝났다고 판단하지 말 것.
+- **Streamlit 콘솔이 실제로 동작하고, 수집→정제→중복제거→Evidence가 끝까지 연결됐다.** `streamlit_app/console.py` — 아래 "Streamlit 실행 방법" 참고. 8화면 중 1(프로젝트)·2(수집 실행)·3(수집 결과·진행상황)·4(통계: canonical 문서/Evidence 수 확인용)는 실제 repository/service를 호출하는 동작 코드이고, 5~8(서술/시각자료/보고서 미리보기/출력)은 왜 아직 안 되는지 명시한 "미구현" 패널이다. 화면 1·3은 이제 DB에서 직접 조회해 **앱 재시작 후에도 유지**된다(5차에서 해결, 이전엔 세션 상태뿐이었음).
+- **naver collector 페이지네이션 추가(5차):** `app/collectors/naver_news.py`가 `start=1,display=100` 고정 단일 요청만 하던 걸 `start<=1000`까지 페이징하도록 고쳤다 — 코드 재확인 중 `daum_news.py`는 이미 `meta.is_end`까지 전체 페이징하고 있었다는 걸 재확인(이전 세션 "둘 다 단일 요청" 서술은 daum 쪽이 부정확했음, 정정함). 이제 바쁜 키워드도 월 전체 기사를 한 페이지(100건)에서 자르지 않는다.
+- **신규 `MultiQueryCollectionToEvidenceWorkflow`(5차, `app/workflows/multi_query_collection_to_evidence.py`):** 기존 `CollectionToEvidenceWorkflow`는 project당 query 1개만 받아 workflow state를 전진시키는 구조라 키워드 N개 fan-out에 못 쓴다(state machine이 각 상태를 한 번만 허용). 새 workflow는 키워드×채널 조합 전체를 먼저 수집하고, `COLLECTION_RUNNING`/`COLLECTION_COMPLETED`를 한 번만 거친 뒤, **그 배치에서 수집된 raw document 전체의 합집합**에 대해 정제·중복제거·Evidence를 한 번에 수행한다 — 이게 "네이버와 구글에서 같은 기사를 발견해도 기사 한 건" 요구의 핵심이다(같은 URL이 다른 키워드에서 또 발견되면 `upsert_raw`가 canonical_url 기준으로 같은 행에 덮어쓰므로 문서 수가 늘지 않고, 그래도 남는 제목/본문 중복은 `DeduplicationService`가 추가로 잡는다). 통합 테스트로 "두 키워드에서 같은 URL이 나와도 문서 1건, 각자 고유 URL은 그대로 보존"을 실제 SQLite로 검증함.
+- 이 workflow도 **한 번만** `QUERIES_READY → ... → EVIDENCE_COMPLETED`를 거친다(기존 workflow와 동일한 설계 제약). 즉 **같은 프로젝트에서 수집을 두 번 실행할 수 없다** — 키워드를 바꿔 다시 돌리려면 새 프로젝트를 만들어야 한다. Streamlit 콘솔의 "2. 수집 설정·실행" 화면은 이 상태를 확인해서, 이미 수집한 프로젝트에서는 폼을 숨기고 안내만 보여준다.
+- `ProjectRepository.list()`, `CollectionRunRepository.list_by_project()` 신규 추가(5차, 신규 schema 아닌 조회 메서드) — Streamlit 콘솔이 세션이 아니라 DB에서 직접 프로젝트/실행 이력을 읽도록 연결했다.
+- 코드 확인 결과(2026-10-16): `app/`에 `hwpx`/`openai`/`anthropic`/`gpt`/`llm` 실제 코드가 없다(HWPX·LLM 연동 0%). `app/models|schemas/{report,visualization}.py`는 각 20~40줄의 빈 contract뿐이고 렌더링/차트/문서 writer가 없다. 1.0(`aiporg/`)에는 2.0으로 아직 포팅 안 된 차트(`aiporg/charts/*`), DOCX writer(`aiporg/report/docx_writer.py`), 블로그/커뮤니티(`aiporg/collect/*`), 유튜브(`aiporg/youtube/*`) 코드가 있다. 댓글 수집(`metadata["document_type"]` 컨벤션), 구글/커뮤니티/블로그/유튜브 collector는 여전히 미구현.
 - Phase 6의 순수 템플릿 서술·검증은 일부 구현됐다(`app/narrative/template.py`, 입력 전용 `NarrativeContext`). 출력 계약 결정, 저장, 문장별 근거 매핑, LLM 초안, 사용자 승인, Narrative workflow 통합은 아직 구현되지 않았다.
-- 새 schema나 workflow 상태를 임의로 추가하지 않는다. LLM 초안·수정본·승인본, 시각 자료(Visualization), Report bundle의 저장 계약과 승인 게이트를 먼저 설계 문서에 명시하고 결정한 뒤 구현한다(구현 계획 §2). Streamlit 콘솔 작업 중에는 **core(`app/`) 계약을 하나도 바꾸지 않고** 기존 repository/service만 조합해서 화면 1~3을 만들었다 — 신규 schema 없이 가능한 범위였음이 실제로 확인됨.
+- 새 schema나 workflow 상태를 임의로 추가하지 않는다. LLM 초안·수정본·승인본, 시각 자료(Visualization), Report bundle의 저장 계약과 승인 게이트를 먼저 설계 문서에 명시하고 결정한 뒤 구현한다(구현 계획 §2). 이번 5차 작업도 **core 계약(Pydantic schema/DB 테이블)을 하나도 추가하지 않았다** — repository에 추가한 건 조회 메서드(`list`, `list_by_project`)뿐이고, 새 workflow는 기존 서비스(`CleaningService`/`DeduplicationService`/`EvidenceService`/`CollectionService`)를 그대로 재사용한다.
 - 작업 트리에는 이 인계 설정 이전부터 다수의 미커밋 변경이 있다. 인계받는 도구는 이를 기존 작업으로 보존한다.
-- **테스트 환경: 확인·해결됨(2026-10-16, 4차).** 시스템 `/usr/bin/python3`(3.9.6)에는 `matplotlib==3.11.0`이 설치되지 않는다(3.10+ 필요). 저장소 루트에 Homebrew Python 3.12로 `.venv`를 만들어 `requirements-dev.txt`(+ `streamlit`)를 설치했고, `tests_v2`+`tests` **254 passed**를 실제로 확인했다(narrative-design.md의 2026-09-23 기록과 일치). `.venv/`와 `aiporg2.db`는 `.gitignore`에 추가함.
+- **테스트 환경: 확인·해결됨.** 시스템 `/usr/bin/python3`(3.9.6)에는 `matplotlib==3.11.0`이 설치되지 않는다(3.10+ 필요). 저장소 루트에 Homebrew Python 3.12로 `.venv`를 만들어 `requirements-dev.txt`(+ `streamlit`)를 설치했다. `tests_v2`+`tests` **260 passed**(이전 254 + 신규 6: naver 페이지네이션 2, multi-query workflow unit 3, integration 1). `.venv/`와 `aiporg2.db`는 `.gitignore`에 추가함.
 - `AGENTS.md`의 기존 1~9번 개발 규칙을 유지한다. 같은 checkout에서는 한 번에 한 도구만 파일을 수정한다. 별도 worktree를 쓰면 인계 파일과 코드 변경을 함께 전달한다.
 
 ## Streamlit 실행 방법
@@ -51,12 +55,12 @@ AIPORG 전용 보고서 목차·표지·서식·차트 PNG 배치와 형식별 �
 않는다). 파일명을 `app.py`로 바꾸지 말 것 — 저장소 루트의 `app/` 패키지와 이름이
 충돌해 import가 깨진다(이번에 실제로 재현하고 `console.py`로 고쳤다).
 
-알려진 한계: 프로젝트 목록·프로젝트의 전체 run 목록을 조회하는 repository
-메서드가 없어서, 지금은 같은 브라우저 세션 동안 만든 프로젝트/실행한 수집만
-화면에 남는다(앱 재시작 시 사라짐, 기존 프로젝트는 UUID로 다시 불러와야 함).
-수집 실행은 `CollectionService`만 쓰고 정제→Evidence(`CollectionToEvidenceWorkflow`)
-는 아직 연결 안 했다(그 workflow는 project당 한 run만 받는 구조라 키워드 N개
-fan-out과 바로 안 맞음 — M1에서 설계 필요).
+알려진 한계: 같은 프로젝트에서 "수집 실행"은 **한 번만** 가능하다(workflow
+state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤니티/블로그/유튜브
+채널은 아직 collector가 없어 체크박스가 비활성 상태로만 표시된다. 댓글은
+아직 수집하지 않는다. "4. 통계·이슈 검토"는 canonical 문서 수·Evidence 수·
+목록만 보여주고, 감성·연관 키워드·비교기간 등 전체 `AnalyticsSnapshot` 집계는
+아직 연결하지 않았다(M2).
 
 ## 구현 계획 한눈에 보기
 
@@ -65,7 +69,7 @@ fan-out과 바로 안 맞음 — M1에서 설계 필요).
 | 단계 | 구현 내용 | 상태 |
 | --- | --- | --- |
 | Phase 0~2 | 1.0과 분리한 `app/` 계약·상태 머신, 테스트 환경, DB migration·repository 구현 | 완료, 2026-10-16 재확인(254 passed) |
-| Phase 3 | 수집 → 정제·중복 제거 → Evidence 저장과 실패 후 재개 | 기록상 완료(네이버/다음 중심, 월간 전체 수집 아님) |
+| Phase 3 | 수집 → 정제·중복 제거 → Evidence 저장과 실패 후 재개 | 네이버/다음만, 하지만 Streamlit에서 키워드 N개 fan-out까지 실제로 동작(5차). 구글/커뮤니티/블로그/유튜브·댓글은 미구현 |
 | Phase 4 | Evidence → 검증된 Fact → Issue 확정과 출처 역추적 | 기록상 완료 |
 | Phase 5 | canonical 문서 기준 언급량·채널·키워드·감성·비교기간 집계와 AnalyticsSnapshot | 기록상 완료 |
 | Phase 6 | GPT/Claude 서술 초안, 근거·수치 검증, 초안·수정·승인 버전 저장, Streamlit 검수 UI | 템플릿 서술 일부 + Streamlit 콘솔 화면 1~3 동작; 나머지 미구현 |
@@ -76,10 +80,10 @@ fan-out과 바로 안 맞음 — M1에서 설계 필요).
 
 ## 정확한 다음 행동
 
-1. `ProjectRepository`/`CollectionRunRepository`에 "프로젝트 목록"·"프로젝트의 전체 run 목록" 조회 메서드를 추가한다(신규 schema 아닌 조회 메서드). Streamlit 콘솔이 세션 재시작 후에도 기존 프로젝트/실행 이력을 보여주려면 필요하다.
-2. 키워드 N개 fan-out을 `CollectionToEvidenceWorkflow`(정제→중복제거→Evidence)까지 연결하는 orchestration을 설계한다 — 현재 그 workflow는 project당 한 run만 받는 구조라 그대로 못 쓴다.
+1. 구글 수집기를 신규로 만든다(1.0에도 코드 없음 — 2026-10-16 결정으로 범위 포함됨). 커뮤니티(클리앙/디시/펨코/루리웹/더쿠)·블로그·유튜브는 1.0 코드를 2.0 계약으로 포팅한다. 전부 `MultiQueryCollectionToEvidenceWorkflow`의 `CollectionRequest.collector`로 바로 꽂을 수 있는 구조다.
+2. 댓글 수집 컨벤션(`metadata["document_type"]="comment"`, `parent_document_id`)을 실제 collector에 구현한다.
 3. Narrative 출력·Visualization·Report의 초안·수정·승인·문장 근거·시각 자산 버전 저장 계약을 명시적으로 결정한다(구현 계획 §2, §7 결정 목록 중 미해결: HWPX 자산 확보, Narrative/Visualization/Report 계약, LLM provider 최종 선택/비용, 1.0 수집기 포팅 범위).
-4. 네이버 collector에 페이지 순회를 추가하고(다음은 이미 있음), 구글 수집기를 신규로 만든다(1.0에도 코드 없음 — 2026-10-16 결정으로 범위 포함됨). 커뮤니티(클리앙/디시/펨코/루리웹/더쿠)·블로그·유튜브는 1.0 코드를 2.0 계약으로 포팅한다.
+4. `AnalyticsService`를 Streamlit "4. 통계·이슈 검토" 화면에 연결해 감성·연관 키워드·채널 분포·비교기간 지표를 실제로 보여준다(M2).
 5. mock LLM adapter(키 없이 template fallback) → 시각 자료 2종(채널 도넛, TOP10 카드)만 편집 UI에 연결 → HWPX 3쪽(표지/목차/요약) 시제품 순으로 1차 최소 단위를 넓힌다(구현 계획 §6).
 6. 별도 python-hwpx를 연결하고 7월 보고서의 대표 페이지 시제품을 실제 한컴에서 검증한다.
 
@@ -118,31 +122,62 @@ fan-out과 바로 안 맞음 — M1에서 설계 필요).
 3. LLM provider(GPT/Claude) 최종 선택, API 키/비용 책임, 월 예산
 4. 1.0 유튜브/커뮤니티/블로그 수집기 "포팅" vs "재작성" 여부와 범위
 
-## 이번 문서 작업과 검증 (2026-10-16, 4차)
+## 이번 작업과 검증 (2026-10-16, 5차: 수집 정확도 + 파이프라인 연결)
 
-- 사용자가 X·인스타그램 제외/구글 포함, 커뮤니티 목록 현행 유지를 확정하고
-  "Streamlit을 실행할 수 있는 명령어"와 "프로젝트 자체가 Streamlit 기반으로
-  실행되도록" 요청했다. 이전 3번의 세션과 달리 **이번에는 실제 코드를 작성하고
-  실행까지 검증했다.**
-- 신규 코드: `streamlit_app/console.py`(화면 1~3 동작, 4~8 명시적 미구현 패널).
-  core(`app/`) 계약은 변경하지 않았다 — 기존 `ProjectRepository`,
-  `QuerySetRepository`, `CollectionService`, `CollectionRunRepository`,
-  `DocumentRepository.list_raw_by_collection_run`만 조합해서 만들었다.
-- `.venv`(Python 3.12) 구성, `requirements-dev.txt`에 `streamlit` 추가,
-  `tests_v2`+`tests` 254 passed 확인, `.gitignore`에 `aiporg2.db` 추가.
-- `streamlit.testing.v1.AppTest`로 8화면 전환 전부와 프로젝트 생성 폼 제출을
-  실행해 예외 없음과 실제 SQLite 행 생성을 확인했다. 가짜 collector로
-  `CollectionService` → `CollectionRunRepository.get` →
-  `DocumentRepository.list_raw_by_collection_run` 경로도 실행해 확인했다. 실제
-  네이버/다음 API 네트워크 호출은 하지 않았다(키 미설정).
-- 과정에서 발견·수정한 버그: (1) 파일명을 `app.py`로 했을 때 `app/` 패키지와
-  이름 충돌로 import가 깨짐 → `console.py`로 변경. (2) "출력·이력" 페이지의
-  미구현 안내 딕셔너리 key가 사이드바 라벨과 달라 `KeyError` → key를 맞춤.
-- 이전 세션 서술 오류 2건을 코드 재확인으로 정정했다(구현 계획 문서에도 반영):
-  daum_news.py는 실제로는 페이지 순회를 이미 하고 있었고(naver만 단일 요청),
-  키워드 리스트 저장은 `QuerySetRepository`가 이미 있어 "신규 저장 계약 필요"가
-  아니라 "이미 있는 repository를 쓰면 됨"이었다.
-- 기존 미커밋 변경은 보존했고, `app/` 하위 core 코드는 건드리지 않았다.
+사용자 요청: "구현 진행해. 최대한 정확도 올리는 수집 방향으로. 지금 있는
+파이프라인도 한번 점검해도 좋고, 요구사항에 맞는 데이터 수집이 잘 되는지."
+(4차에서 만든 Streamlit 콘솔을 실제 `streamlit run`으로 실행했을 때
+`ModuleNotFoundError: No module named 'app'`가 나서 그것도 먼저 고쳤다 — 아래 참고.)
+
+- **버그 수정(실행 실패):** 사용자가 실제로 `streamlit run streamlit_app/console.py`를
+  실행했을 때 `app` 패키지를 못 찾는 에러가 났다. 원인: Streamlit은 스크립트의
+  "자기 디렉터리"를 `sys.path`에 넣는데, `AppTest`(내 검증 방법)는 추가로 호출
+  시점의 cwd도 `sys.path`에 넣어서 내가 저장소 루트에서 테스트할 때는 우연히
+  통과했던 것 — 실제 `streamlit run`은 cwd를 넣지 않는다. `streamlit_app/console.py`
+  맨 위에 `sys.path.insert(0, REPO_ROOT)`를 코드로 직접 추가해 cwd와 무관하게
+  동작하도록 고쳤고, cwd를 `/tmp`로 바꾼 상태에서까지 재현·검증했다.
+- **파이프라인 점검 결과(코드 재확인):** `app/collectors/naver_news.py`가
+  `start=1, display=100` 고정 단일 요청만 하고 있어 바쁜 키워드의 월간 기사를
+  최대 100건에서 잘라내고 있었다 — 가장 큰 정확도 문제로 보고 고쳤다(아래).
+  `app/cleaning/service.py`(URL 정규화)와 `app/dedup/service.py`(URL/제목/본문
+  3단계 exact match)는 검토 결과 설계대로 올바르게 동작, 변경 안 함.
+- **수정 1 — naver 페이지네이션:** `start<=1000`까지 페이징하도록 변경(Naver API
+  한도). 이전엔 한 키워드당 최대 100건만 가져왔다. unit test 2개 추가(여러
+  페이지 순회, 1000건 상한에서 정지).
+- **수정 2 — 신규 `MultiQueryCollectionToEvidenceWorkflow`:** 기존
+  `CollectionToEvidenceWorkflow`는 project당 query 1개만 받고 workflow state를
+  한 번만 전진시키는 구조라, 키워드 N개를 루프로 돌리면 state machine이
+  두 번째 키워드부터 `InvalidStateTransitionError`를 던진다(각 상태는 한 번만
+  전진 가능). 새 workflow(`app/workflows/multi_query_collection_to_evidence.py`)는
+  N개 요청을 전부 수집한 뒤 상태를 한 번만 전진시키고, **수집된 raw document
+  전체의 합집합**에 정제·중복제거·Evidence를 한 번에 적용한다 — 이게 "같은
+  기사를 두 키워드에서 찾아도 한 건" 요구의 실제 구현이다. unit test 3개(빈
+  요청 거부, 잘못된 상태 거부, 키워드 하나 실패해도 나머지는 진행) + 통합
+  테스트 1개(두 키워드에 같은 URL이 섞여 있어도 canonical 문서 3건·Evidence
+  3건으로 정확히 collapse되는 것을 실제 SQLite로 검증)로 확인.
+- **수정 3 — repository 조회 메서드 추가:** `ProjectRepository.list()`,
+  `CollectionRunRepository.list_by_project()`(둘 다 신규 schema 아님, 조회만).
+  Streamlit "1. 월별 프로젝트"/"3. 수집 결과 검토"가 이제 세션이 아니라 DB에서
+  직접 읽어, **앱을 재시작해도 프로젝트/수집 이력이 남는다**(4차의 "알려진
+  한계" 중 하나를 해결).
+- **Streamlit 콘솔을 새 workflow에 연결:** "2. 수집 설정·실행"이 이제
+  `MultiQueryCollectionToEvidenceWorkflow`를 호출해 수집→정제→중복제거→Evidence를
+  한 번에 실행한다. 이미 수집을 실행한 프로젝트는 폼을 숨기고 "새 프로젝트를
+  만들어라" 안내만 보여준다(workflow state가 한 번만 전진하는 제약을 사용자에게
+  투명하게 노출). "4. 통계·이슈 검토"는 더 이상 "미연결" 안내뿐이 아니라 실제
+  canonical 문서 수·Evidence 수·문서 목록을 보여준다.
+- **실제로 돌려서 검증:** 가짜(fixture) 네이버/다음 collector로 실제 Streamlit
+  콘솔의 `_run_collection` 함수를 호출해 프로젝트 생성 → 키워드 2개×채널
+  2개 수집 → DB 상태(`EVIDENCE_COMPLETED`, CollectionRun 4건, Document 4건,
+  Evidence 2건 — 제목 중복 2건이 올바르게 걸러짐)까지 sqlite3로 직접 확인했고,
+  `AppTest`로 "1→3→4" 화면이 그 데이터를 정확히 보여주는 것도 확인했다. 이
+  과정에서 **또 다른 버그**를 발견·수정함: `_run_collection`을 고치면서
+  `CREATED → QUERIES_READY` 전진 코드를 빠뜨렸는데, 새 workflow는 QUERIES_READY를
+  요구해서 조용히 `InvalidStateTransitionError`로 실패하고 있었다 — 되돌려 고침.
+- `tests_v2`+`tests` **260 passed**(254 + naver 2 + multi-query unit 3 + 통합 1).
+  실 네이버/다음 API 네트워크 호출은 하지 않았다(키 미설정 상태로 검증).
+- 기존 미커밋 변경은 보존했다. 수정 대상 파일은 전부 위 "사용자가 결정할 사항"
+  과 무관한, 이미 M1로 예정돼 있던 작업이라 새 설계 결정 없이 진행했다.
 
 작업을 이어받는 도구는 완료 작업·변경 파일·검증 결과·막힌 점·다음 행동을 이 문서에 최신 상태로 갱신한다. 채팅 원문이나 비밀값은 기록하지 않는다.
 
