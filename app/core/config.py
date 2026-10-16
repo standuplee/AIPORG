@@ -19,6 +19,8 @@ class Settings(BaseModel):
     kakao_rest_api_key: str | None = None
     youtube_api_key: str | None = None
     gemini_api_key: str | None = None
+    google_api_key: str | None = None
+    google_search_engine_id: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -33,6 +35,8 @@ class Settings(BaseModel):
             kakao_rest_api_key=os.getenv("AIPORG2_KAKAO_REST_API_KEY"),
             youtube_api_key=os.getenv("AIPORG2_YOUTUBE_API_KEY"),
             gemini_api_key=os.getenv("AIPORG2_GEMINI_API_KEY"),
+            google_api_key=os.getenv("AIPORG2_GOOGLE_API_KEY"),
+            google_search_engine_id=os.getenv("AIPORG2_GOOGLE_SEARCH_ENGINE_ID"),
         )
 
 

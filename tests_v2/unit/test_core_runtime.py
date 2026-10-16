@@ -14,6 +14,8 @@ def test_settings_use_only_aiporg2_environment(monkeypatch) -> None:
     monkeypatch.setenv("AIPORG2_KAKAO_REST_API_KEY", "kakao-key")
     monkeypatch.setenv("AIPORG2_YOUTUBE_API_KEY", "youtube-key")
     monkeypatch.setenv("AIPORG2_GEMINI_API_KEY", "gemini-key")
+    monkeypatch.setenv("AIPORG2_GOOGLE_API_KEY", "google-key")
+    monkeypatch.setenv("AIPORG2_GOOGLE_SEARCH_ENGINE_ID", "google-cx")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///legacy.db")
 
     settings = Settings.from_env()
@@ -25,6 +27,8 @@ def test_settings_use_only_aiporg2_environment(monkeypatch) -> None:
     assert settings.kakao_rest_api_key == "kakao-key"
     assert settings.youtube_api_key == "youtube-key"
     assert settings.gemini_api_key == "gemini-key"
+    assert settings.google_api_key == "google-key"
+    assert settings.google_search_engine_id == "google-cx"
     assert settings.environment == "development"
 
 

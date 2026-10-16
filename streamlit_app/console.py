@@ -49,6 +49,7 @@ from app.analytics.service import AnalyticsService
 from app.cleaning.service import CleaningService
 from app.collectors.daum_news import DaumNewsCollector
 from app.collectors.naver_news import NaverNewsCollector
+from app.collectors.google_search import GoogleSearchCollector
 from app.collectors.youtube import YouTubeCollector
 from app.core.config import Settings, get_settings
 from app.core.enums import (
@@ -102,15 +103,23 @@ from app.workflows.multi_query_collection_to_evidence import (
 )
 
 # label -> settings credential key used to build the real collector.
-IMPLEMENTED_PROVIDERS = ["naver", "daum", "youtube"]
-PROVIDER_LABELS = {"naver": "네이버 뉴스", "daum": "다음 뉴스", "youtube": "유튜브"}
+IMPLEMENTED_PROVIDERS = ["naver", "daum", "youtube", "google"]
+PROVIDER_LABELS = {
+    "naver": "네이버 뉴스",
+    "daum": "다음 뉴스",
+    "youtube": "유튜브",
+    "google": "구글 검색",
+}
 PROVIDER_CHANNELS = {
     "naver": ChannelType.NEWS,
     "daum": ChannelType.NEWS,
     "youtube": ChannelType.VIDEO,
+    # Google is a discovery path across content types, not one channel --
+    # tagged NEWS as a documented simplification (see
+    # app/collectors/google_search.py's module docstring).
+    "google": ChannelType.NEWS,
 }
 PLANNED_PROVIDERS = [
-    "구글 검색 (범위 포함, 수집기 미구현 — M1)",
     "커뮤니티: 클리앙/디시인사이드/펨코/루리웹/더쿠 (목록 확정, 수집기 포팅 전 — M1)",
 ]
 
@@ -179,6 +188,11 @@ def build_collectors(settings: Settings) -> dict[str, object]:
         collectors["daum"] = DaumNewsCollector(api_key=settings.kakao_rest_api_key)
     if settings.youtube_api_key:
         collectors["youtube"] = YouTubeCollector(api_key=settings.youtube_api_key)
+    if settings.google_api_key and settings.google_search_engine_id:
+        collectors["google"] = GoogleSearchCollector(
+            api_key=settings.google_api_key,
+            search_engine_id=settings.google_search_engine_id,
+        )
     return collectors
 
 

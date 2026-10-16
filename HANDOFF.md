@@ -96,7 +96,7 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 | 단계 | 구현 내용 | 상태 |
 | --- | --- | --- |
 | Phase 0~2 | 1.0과 분리한 `app/` 계약·상태 머신, 테스트 환경, DB migration·repository 구현 | 완료, 2026-10-16 재확인(254 passed) |
-| Phase 3 | 수집 → 정제·중복 제거 → Evidence 저장과 실패 후 재개 | 네이버/다음/유튜브, Streamlit에서 키워드 N개 fan-out까지 실제로 동작(5·7차). 구글/커뮤니티/블로그·댓글은 미구현 |
+| Phase 3 | 수집 → 정제·중복 제거 → Evidence 저장과 실패 후 재개 | 네이버/다음/유튜브/구글, Streamlit에서 키워드 N개 fan-out까지 실제로 동작(5·7·11차). 커뮤니티/블로그·댓글은 미구현 |
 | Phase 4 | Evidence → 검증된 Fact → Issue 확정과 출처 역추적 | 기록상 완료, Streamlit "이슈 확정 실행" 버튼으로 실제 실행 확인(9차). 공식 출처 정책 미결정 |
 | Phase 5 | canonical 문서 기준 언급량·채널·키워드·감성·비교기간 집계와 AnalyticsSnapshot | 기록상 완료, Streamlit "통계 집계 실행" 버튼으로 실제 실행 확인(9차) |
 | Phase 6 | GPT/Claude 서술 초안, 근거·수치 검증, 초안·수정·승인 버전 저장, Streamlit 검수 UI | 출력 계약 결정·구현(8차), Gemini 어댑터 구현(8차), Streamlit 화면 1~5 동작(9차)로 초안 생성·저장·표시까지 됨; 사용자 수정·버전 비교·승인 UI는 아직 없음 |
@@ -107,11 +107,12 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 
 ## 정확한 다음 행동
 
-1. 구글 수집기를 신규로 만든다(1.0에도 코드 없음 — 2026-10-16 결정으로 범위 포함됨). 커뮤니티(클리앙/디시/펨코/루리웹/더쿠)·블로그는 1.0 코드를 2.0 계약으로 포팅한다(유튜브는 7차에서 이미 포팅함). 전부 `MultiQueryCollectionToEvidenceWorkflow`의 `CollectionRequest.collector`로 바로 꽂을 수 있는 구조다.
+1. 커뮤니티(클리앙/디시/펨코/루리웹/더쿠)·블로그는 1.0 코드를 2.0 계약으로 포팅한다(유튜브·구글은 7·11차에서 이미 완료). `MultiQueryCollectionToEvidenceWorkflow`의 `CollectionRequest.collector`로 바로 꽂을 수 있는 구조다.
 2. 댓글 수집 컨벤션(`metadata["document_type"]="comment"`, `parent_document_id`)을 실제 collector에 구현한다.
 3. Visualization·Report의 시각 자산 버전/승인 저장 계약을 명시적으로 결정한다(Narrative 출력 계약은 8차에서 이미 결정·구현함 — 구현 계획 §2, §7 결정 목록 중 미해결: HWPX 자산 확보, Visualization/Report 계약, 1.0 수집기 포팅 범위, 공식 출처 정책). 이게 결정되면 "5. 서술 편집"의 비활성화된 "최종 승인" 버튼을 실제로 연결할 수 있다.
-4. 시각 자료 2종(채널 도넛, TOP10 카드)만 편집 UI에 연결 → HWPX 3쪽(표지/목차/요약) 시제품 순으로 1차 최소 단위를 넓힌다(구현 계획 §6).
-5. 별도 python-hwpx를 연결하고 7월 보고서의 대표 페이지 시제품을 실제 한컴에서 검증한다.
+4. 구글 결과의 channel 분류를 전부 `NEWS`로 단순화해둔 것(11차)을 URL/도메인 기반으로 정교화할지 결정한다(지금은 의도적 단순화일 뿐 결정 대상은 아니었음 — 필요성이 보이면 결정 목록에 추가).
+5. 시각 자료 2종(채널 도넛, TOP10 카드)만 편집 UI에 연결 → HWPX 3쪽(표지/목차/요약) 시제품 순으로 1차 최소 단위를 넓힌다(구현 계획 §6).
+6. 별도 python-hwpx를 연결하고 7월 보고서의 대표 페이지 시제품을 실제 한컴에서 검증한다.
 
 ## 확정된 결정 (2026-10-16)
 
@@ -139,7 +140,8 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
   GPT/Claude는 당장 쓰지 않지만 provider를 어댑터 교체로 바꿀 수 있는 구조는
   유지했다(narrative 계층에만 LLM 호출이 있고 collector/analyzer는 안 건드림).
 - **X·인스타그램 제외, 구글 포함.** X·인스타그램은 유료 접근으로 판단해 1차
-  범위에서 완전히 뺀다. 구글은 범위에 포함하되 수집기는 아직 미구현.
+  범위에서 완전히 뺀다. 구글은 범위에 포함, 수집기는 11차에서 구현 완료
+  (`app/collectors/google_search.py`, 공식 Custom Search JSON API).
 - **커뮤니티 목록은 1.0 그대로.** clien/dcinside/fmkorea/ruliweb/theqoo 5개
   사이트를 그대로 쓴다. 2.0 포팅(수집기 작성)은 아직 안 함.
 - **Streamlit 배치: `streamlit_app/console.py`, 로컬 전용.** 위 "Streamlit 실행
@@ -420,6 +422,44 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
   `page_narrative` 확장)에 있다. `tests_v2`+`tests` **282 passed**(신규
   테스트는 기존 narrative 테스트에 assertion 1줄 추가하는 형태라 전체
   개수는 그대로).
+
+## 이번 작업과 검증 (2026-10-16, 11차: 구글 수집기)
+
+사용자가 10차 끝에 정리한 "정확한 다음 행동" 1번(구글 수집기)을 "다음 진행해"로
+승인했다. 같은 요청에서 "푸시해놨어"라고도 했지만 `git push`는 여전히
+`Permission denied (publickey)`로 실패했다 — `ssh-add -l`로 확인해보니 **SSH
+에이전트에 로드된 키가 아예 없다**("The agent has no identities."). 키 파일을
+디스크에 추가한 것과 `ssh-agent`에 로드하는 것은 별개라, `ssh-add
+~/.ssh/<키파일>`을 직접 실행해야 할 수 있다는 걸 사용자에게 알려야 한다
+(아직 해결 안 됨, 커밋은 로컬에 계속 쌓이고 있음).
+
+- **신규 `app/collectors/google_search.py`(`GoogleSearchCollector`):**
+  공식 Google Custom Search JSON API를 쓴다(구글 결과 페이지 스크래핑이
+  아님 — 약관 위반이라 피함). `search()`는 페이지당 1쿼리(무료 한도 하루
+  100쿼리), `fetch()`는 naver_news.py와 같은 패턴으로 페이지를 받아 HTML을
+  텍스트로 정제한다.
+- **게시일 처리:** Google 검색 API는 임의 웹페이지의 게시일을 안정적으로
+  주지 않는다. `pagemap.metatags`에서 `article:published_time` 등 흔한 키를
+  찾아보고, 못 찾으면 **그 결과를 조용히 제외한다**(요구사항 §3.4 "게시
+  시각을 확인할 수 없는 자료는 보류"를 그대로 적용 — 가짜 날짜를 넣지
+  않음). unit test로 "날짜 있는 항목은 포함, 없는 항목은 빠짐"을 확인.
+- **channel 분류 단순화(문서화된 제약):** 구글은 뉴스/블로그/커뮤니티를
+  가리지 않고 찾아주는 "발견 경로"라 원문 채널을 안정적으로 구분할 수
+  없다 — 전부 `ChannelType.NEWS`로 태깅하기로 하고 모듈 docstring과
+  `streamlit_app/console.py`에 왜 그런지 적어뒀다. 더 정교한 URL 기반
+  분류는 다음 행동 목록에 결정 대상으로 추가함.
+- **Settings/`.env.example` 추가:** `AIPORG2_GOOGLE_API_KEY`,
+  `AIPORG2_GOOGLE_SEARCH_ENGINE_ID`(cx) 둘 다 필요 — 1.0에는 구글 수집기가
+  아예 없어서 대응되는 1.0 키가 없다는 것도 템플릿에 적었다.
+- Streamlit 콘솔에 연결: `IMPLEMENTED_PROVIDERS`/`PROVIDER_LABELS`/
+  `PROVIDER_CHANNELS`에 "google" 추가, `PLANNED_PROVIDERS`에서 구글 항목
+  제거(커뮤니티만 남음). 가짜 collector로 `_run_collection`을 직접 호출해
+  `channel='NEWS'`, `platform='google'`로 정확히 저장되는 것을 DB에서
+  확인했고, `AppTest`로 8화면 전부(자격증명 있는 네이버/다음 포함 — 실제
+  사용자 `.env`에 들어있는 진짜 키로 "구현됨" 상태가 뜨는 것도 확인됨)
+  예외 없이 도는 것을 재확인했다.
+- `tests_v2`+`tests` **292 passed**(282 + Google collector 10). 실제 Google
+  API 네트워크 호출은 하지 않았다.
 
 ## 기능 완료 시 커밋·푸시 규칙
 - 기능 단위의 구현과 필요한 테스트가 완료되면 `HANDOFF.md`를 최신 상태로 갱신한 뒤 해당 기능의 변경만 선별하여 커밋하고 원격 브랜치에 푸시한다.
