@@ -18,7 +18,13 @@ from app.schemas.query import QueryId, SearchQuery
 
 
 class _DocumentRepository(Protocol):
-    def upsert_raw(self, project_id: ProjectId, document: RawDocument): ...
+    def upsert_raw(
+        self,
+        project_id: ProjectId,
+        document: RawDocument,
+        *,
+        collection_run_id: RunId | None = None,
+    ): ...
 
 
 class CollectionService:
@@ -78,7 +84,11 @@ class CollectionService:
         for result in results:
             try:
                 document = await self.collector.fetch(result)
-                self.document_repository.upsert_raw(project_id, document)
+                self.document_repository.upsert_raw(
+                    project_id,
+                    document,
+                    collection_run_id=run_id,
+                )
                 saved += 1
             except CollectorError:
                 errors += 1

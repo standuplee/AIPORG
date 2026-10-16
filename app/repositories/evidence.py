@@ -15,3 +15,6 @@ class EvidenceRepository(SessionScopedRepository, Protocol):
 
     def get(self, project_id: ProjectId, evidence_id: EvidenceId) -> EvidenceRead | None:
         """Return evidence when it exists for the project."""
+
+    def list_by_project(self, project_id: ProjectId) -> list[EvidenceRead]:
+        """Return project evidence in deterministic creation order."""

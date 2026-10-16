@@ -1,0 +1,1 @@
+"""Grounded deterministic narrative generation."""

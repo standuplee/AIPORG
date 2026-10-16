@@ -57,8 +57,11 @@ class FakeDocumentRepository:
     def __init__(self) -> None:
         self.saved: list[RawDocument] = []
 
-    def upsert_raw(self, project_id, document):
+        self.run_ids = []
+
+    def upsert_raw(self, project_id, document, *, collection_run_id=None):
         self.saved.append(document)
+        self.run_ids.append(collection_run_id)
         return document
 
 
@@ -100,6 +103,7 @@ def test_collection_service_persists_all_fetched_documents() -> None:
     assert run.documents_saved == 2
     assert run.error_count == 0
     assert len(doc_repo.saved) == 2
+    assert doc_repo.run_ids == [run.id, run.id]
     assert run_repo.started is not None
     assert run_repo.completed == run
 

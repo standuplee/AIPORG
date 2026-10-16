@@ -4,7 +4,8 @@ from typing import Protocol
 
 from app.repositories.base import SessionScopedRepository
 from app.schemas.common import ProjectId
-from app.schemas.project import ProjectCreate, ProjectRead
+from app.core.enums import WorkflowState
+from app.schemas.project import ProjectCreate, ProjectRead, ProjectWorkflowSnapshot
 
 
 class ProjectRepository(SessionScopedRepository, Protocol):
@@ -15,3 +16,13 @@ class ProjectRepository(SessionScopedRepository, Protocol):
 
     def get(self, project_id: ProjectId) -> ProjectRead | None:
         """Return a project when it exists."""
+
+    def get_workflow(self, project_id: ProjectId) -> ProjectWorkflowSnapshot | None:
+        """Return the current project workflow state."""
+
+    def advance_workflow(
+        self,
+        project_id: ProjectId,
+        target: WorkflowState,
+    ) -> ProjectWorkflowSnapshot:
+        """Advance the project by exactly one valid workflow state."""

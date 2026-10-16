@@ -1,5 +1,11 @@
 # AIPORG — AI Public Opinion Report Generator
 
+> AIPORG 2.0은 별도 `app/` 경로에서 개발 중이며 현재 이슈 확정 후 종합 분석
+> (`ANALYTICS_COMPLETED`)까지 연결되어 있다.
+> [2.0 구현 진행 기록](docs/superpowers/plans/2026-09-08-aiporg2-implementation.md)과
+> [분석 실행·집계 기준](docs/aiporg2/analytics.md)을 참고한다.
+> 아래 CLI와 보고서 생성 설명은 기존 1.0 기준이다.
+
 온라인 여론 데이터를 자동 수집·분석하여 **공공기관 수준의 월간 여론분석 보고서**를
 자동 생성하는 시스템. 사용자는 `프로젝트명 / 분석기간 / 키워드 / 보고서 제목`만
 입력하면 원본 리포트(예: 충남 202603 여론분석 리포트)와 동일한 구성의

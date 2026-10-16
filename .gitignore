@@ -4,3 +4,4 @@ __pycache__/
 output/
 .DS_Store
 .env
+aiporg2.db

@@ -147,7 +147,7 @@ def upgrade() -> None:
         "issues", *_timestamps([
             sa.Column("project_id", UUID, nullable=False), sa.Column("label", sa.String(255), nullable=False),
             sa.Column("document_count", sa.Integer(), nullable=False), sa.Column("source_count", sa.Integer(), nullable=False),
-            sa.Column("channel_count", sa.Integer(), nullable=False), sa.Column("sentiment", SENTIMENT, nullable=False),
+            sa.Column("channel_count", sa.Integer(), nullable=False), sa.Column("sentiment", SENTIMENT, nullable=True),
         ]),
         sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"), sa.UniqueConstraint("project_id", "id")

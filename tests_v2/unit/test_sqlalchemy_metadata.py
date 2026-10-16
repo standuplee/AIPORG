@@ -197,3 +197,7 @@ def test_model_annotations_match_channel_and_nullable_columns() -> None:
     assert Project.__annotations__["channels"] == Mapped[list[ChannelType]]
     assert Document.__annotations__["collection_run_id"] == Mapped[UUID | None]
     assert Narrative.__annotations__["issue_id"] == Mapped[UUID | None]
+
+
+def test_issue_summary_sentiment_allows_issue_without_subissues() -> None:
+    assert Base.metadata.tables["issues"].c.sentiment.nullable

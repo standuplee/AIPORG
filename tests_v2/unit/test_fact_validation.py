@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from uuid import uuid4
 
 import pytest
@@ -6,6 +6,8 @@ import pytest
 from app.facts.validation import FactValidationService
 from app.core.enums import ConfidenceGrade, FactStatus
 from app.schemas.fact import FactSchema
+from app.schemas.evidence import EvidenceSchema
+from app.schemas.fact import NumericFactSchema
 
 
 def fact(*document_ids) -> FactSchema:
@@ -51,3 +53,31 @@ def test_fact_without_evidence_is_rejected() -> None:
     )
     with pytest.raises(ValueError, match="evidence"):
         FactValidationService().validate(invalid, official_source=False)
+
+
+def test_numeric_fact_requires_value_in_linked_evidence() -> None:
+    evidence_id = uuid4()
+    evidence = EvidenceSchema(
+        evidence_id=evidence_id,
+        project_id=uuid4(),
+        document_id=uuid4(),
+        excerpt="사업비는 총 1,250.5억 원이다.",
+        created_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+    )
+    numeric = NumericFactSchema(
+        metric="사업비",
+        value=1250.5,
+        unit="억 원",
+        source="공식자료",
+        evidence_ids=[evidence_id],
+        confidence=ConfidenceGrade.A,
+    )
+
+    assert FactValidationService().validate_numeric(
+        numeric, evidence_by_id={evidence_id: evidence}
+    ) == numeric
+    with pytest.raises(ValueError, match="not present"):
+        FactValidationService().validate_numeric(
+            numeric.model_copy(update={"value": 1300}),
+            evidence_by_id={evidence_id: evidence},
+        )

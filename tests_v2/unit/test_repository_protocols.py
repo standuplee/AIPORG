@@ -27,7 +27,7 @@ from app.schemas.evidence import EvidenceSchema
 from app.schemas.fact import FactSchema
 from app.schemas.issue import IssueSchema
 from app.schemas.narrative import NarrativeContext
-from app.schemas.project import ProjectCreate, ProjectRead
+from app.schemas.project import ProjectCreate, ProjectRead, ProjectWorkflowSnapshot
 from app.schemas.query import QueryId, SearchQuery
 from app.schemas.report import ReportSchema
 from app.schemas.collection import CollectionRunRead
@@ -58,7 +58,9 @@ def test_repository_protocols_are_session_scoped() -> None:
 
 def test_project_repository_has_schema_typed_create_and_get() -> None:
     assert getattr(ProjectRepository, "_is_protocol", False)
-    assert {"create", "get"} <= set(ProjectRepository.__dict__)
+    assert {"create", "get", "get_workflow", "advance_workflow"} <= set(
+        ProjectRepository.__dict__
+    )
 
     create_hints = get_type_hints(ProjectRepository.create)
     get_hints = get_type_hints(ProjectRepository.get)
@@ -66,6 +68,9 @@ def test_project_repository_has_schema_typed_create_and_get() -> None:
     assert create_hints["project"] is ProjectCreate
     assert create_hints["return"] is ProjectRead
     assert get_hints["return"] == ProjectRead | None
+    assert get_type_hints(ProjectRepository.get_workflow)["return"] == (
+        ProjectWorkflowSnapshot | None
+    )
 
 
 def test_queryset_and_collection_run_repositories_use_existing_schemas() -> None:
@@ -90,7 +95,13 @@ def test_queryset_and_collection_run_repositories_use_existing_schemas() -> None
 
 
 def test_document_repository_has_schema_typed_upsert_and_canonical_lookup() -> None:
-    assert {"upsert_raw", "upsert_clean", "get_by_canonical_url"} <= set(
+    assert {
+        "upsert_raw",
+        "upsert_clean",
+        "get_by_canonical_url",
+        "list_raw_by_collection_run",
+        "get",
+    } <= set(
         DocumentRepository.__dict__
     )
 
@@ -122,7 +133,7 @@ def test_duplicate_cluster_repository_is_project_scoped_and_schema_typed() -> No
 
 def test_remaining_repositories_expose_schema_typed_phase_zero_operations() -> None:
     expected_methods = {
-        EvidenceRepository: {"create", "get"},
+        EvidenceRepository: {"create", "get", "list_by_project"},
         FactRepository: {"save_batch", "get"},
         IssueRepository: {"save_batch", "get"},
         AnalyticsRepository: {"create", "get_latest"},
@@ -173,3 +184,12 @@ def test_repository_contracts_do_not_depend_on_sqlalchemy_models() -> None:
             if callable(method):
                 annotations += str(get_type_hints(method))
         assert "app.models" not in annotations
+
+
+def test_analytics_inputs_use_existing_project_scoped_contracts() -> None:
+    assert get_type_hints(DocumentRepository.list_canonical) == {
+        "project_id": ProjectId, "return": list[CleanDocument],
+    }
+    assert get_type_hints(IssueRepository.list_by_project) == {
+        "project_id": ProjectId, "return": list[IssueSchema],
+    }

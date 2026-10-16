@@ -20,8 +20,8 @@ class Issue(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     document_count: Mapped[int] = mapped_column(Integer, nullable=False)
     source_count: Mapped[int] = mapped_column(Integer, nullable=False)
     channel_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    sentiment: Mapped[SentimentLabel] = mapped_column(
-        Enum(SentimentLabel, name="sentiment_label"), nullable=False
+    sentiment: Mapped[SentimentLabel | None] = mapped_column(
+        Enum(SentimentLabel, name="sentiment_label"), nullable=True
     )
 
 
