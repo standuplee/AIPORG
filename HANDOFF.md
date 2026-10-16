@@ -55,6 +55,28 @@ AIPORG 전용 보고서 목차·표지·서식·차트 PNG 배치와 형식별 �
 않는다). 파일명을 `app.py`로 바꾸지 말 것 — 저장소 루트의 `app/` 패키지와 이름이
 충돌해 import가 깨진다(이번에 실제로 재현하고 `console.py`로 고쳤다).
 
+**`.env` 키 이름이 반드시 `AIPORG2_` 접두사여야 한다(6차에서 확인·수정).**
+사용자가 `.env`에 넣은 키는 `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`(접두사
+없음, 1.0 스타일)이었고 Kakao/daum 키는 아예 없었다. 두 가지 문제가 겹쳐
+있었다: (1) `app/core/config.py`의 `Settings.from_env()`는 애초에 **`.env`
+파일을 읽지 않는다** — `os.getenv()`로 이미 export된 쉘 환경변수만 읽는다.
+(2) 설령 읽더라도 `AIPORG2_` 접두사가 없으면 2.0은 그 값을 쓰지 않는다(1.0
+환경을 건드리지 않기 위한 기존 설계, `Settings.from_env` docstring 참고).
+`streamlit_app/console.py`에 `python-dotenv`로 `.env`를 로드하는 코드를
+추가해 (1)은 고쳤다 — 이제 쉘에서 직접 export하지 않아도 `.env`만으로 된다.
+(2)는 설계를 유지하고 사용자에게 알리는 쪽으로 처리했다: 아래 이름을
+**`.env`에 추가로** 넣어야 한다(기존 1.0용 줄은 그대로 두고 추가).
+
+```
+AIPORG2_NAVER_CLIENT_ID=<NAVER_CLIENT_ID와 같은 값>
+AIPORG2_NAVER_CLIENT_SECRET=<NAVER_CLIENT_SECRET과 같은 값>
+AIPORG2_KAKAO_REST_API_KEY=<카카오 REST API 키 — .env에 아예 없었음, daum을 쓰려면 새로 발급/추가해야 함>
+```
+
+`get_settings()`가 `lru_cache`라서 프로세스당 한 번만 읽는다 — `.env`를
+고친 뒤에는 **Streamlit 프로세스를 완전히 재시작**해야 반영된다(같은 탭에서
+새로고침만으로는 안 됨).
+
 알려진 한계: 같은 프로젝트에서 "수집 실행"은 **한 번만** 가능하다(workflow
 state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤니티/블로그/유튜브
 채널은 아직 collector가 없어 체크박스가 비활성 상태로만 표시된다. 댓글은
@@ -178,6 +200,39 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
   실 네이버/다음 API 네트워크 호출은 하지 않았다(키 미설정 상태로 검증).
 - 기존 미커밋 변경은 보존했다. 수정 대상 파일은 전부 위 "사용자가 결정할 사항"
   과 무관한, 이미 M1로 예정돼 있던 작업이라 새 설계 결정 없이 진행했다.
+
+## 이번 작업과 검증 (2026-10-16, 6차: .env 로딩 + 수집 기간 프리필)
+
+사용자 보고: ".env에 키 넣었는데 Streamlit에서 못 가져오는듯" + "1단계에서
+설정한 조사 기간을 2단계 수집 기간에 기본값으로 가져와야 하지 않나(수정은
+허용)."
+
+- **`.env` 미반영 원인 두 가지 확인:** (1) `app/core/config.py`가 `.env` 파일
+  자체를 읽지 않음(이미 export된 쉘 환경변수만 읽음). (2) 사용자의 `.env`는
+  1.0 스타일 이름(`NAVER_CLIENT_ID` 등, 접두사 없음)이고 Kakao 키가 아예 없음 —
+  2.0은 `AIPORG2_` 접두사만 읽는 기존 설계라 설령 로드돼도 안 집히는 상태였음.
+  (1)은 `streamlit_app/console.py`에 `python-dotenv` 로딩을 추가해 고쳤다
+  (`requirements-dev.txt`에 `python-dotenv` 추가). (2)는 기존 네임스페이스
+  분리 설계를 유지하고, 사용자가 `.env`에 `AIPORG2_NAVER_CLIENT_ID`/
+  `AIPORG2_NAVER_CLIENT_SECRET`/`AIPORG2_KAKAO_REST_API_KEY`를 추가해야
+  한다는 걸 위 "Streamlit 실행 방법"에 명시했다(대신 읽어주는 fallback은
+  추가하지 않음 — 1.0/2.0 분리를 바꾸는 결정이라 임의로 하지 않았다).
+  `get_settings()`가 `lru_cache`라 `.env` 수정 후 Streamlit 재시작이 필요하다는
+  것도 함께 적었다.
+- **수집 기간 프리필:** `streamlit_app/console.py`의 "2. 수집 설정·실행"
+  화면이 날짜 기본값을 `date.today()` 기준으로 독립적으로 잡고 있어 "1. 월별
+  프로젝트"에서 설정한 조사 기간과 무관했다. 이제 프로젝트의
+  `analysis_period.start`/`.end`를 기본값으로 넣고, 그 위에 "수정 가능하지만
+  naver/daum collector는 아직 날짜로 결과를 거르지 않는다"는 caption을
+  추가했다 — 날짜 입력이 실제로는 아직 수집 로직에 전달되지 않는다는 기존
+  한계를 숨기지 않고 같이 알렸다.
+- `AppTest`로 재검증: 프로젝트 생성(조사 기간 2026-10-01~10-16) → "2. 수집
+  설정·실행" 진입 시 날짜 입력 기본값이 정확히 2026-10-01/10-16로 뜨는 것을
+  확인. `.env` 로딩은 임시 파일로 별도 검증(`AIPORG2_*` 키가 올바르게
+  `get_settings()`에 반영됨). 사용자의 실제 `.env`는 읽지도 수정하지도 않았다
+  (내용 확인은 변수 이름만, 값은 보지 않음).
+- `tests_v2`+`tests` 260 passed 유지(이번 변경은 UI 레이어 글루 코드라 기존
+  테스트 범위 밖, 신규 테스트는 추가하지 않음).
 
 작업을 이어받는 도구는 완료 작업·변경 파일·검증 결과·막힌 점·다음 행동을 이 문서에 최신 상태로 갱신한다. 채팅 원문이나 비밀값은 기록하지 않는다.
 

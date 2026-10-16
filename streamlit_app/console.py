@@ -32,6 +32,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+# Nothing in app/core/config.py reads a .env file -- Settings.from_env() only
+# reads already-exported process environment variables. Load the repo's .env
+# here, before anything calls get_settings() (which is lru_cache'd, so this
+# must happen before its first call in this process). This does not override
+# variables the shell already exported.
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv(REPO_ROOT / ".env")
+
 import streamlit as st
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
@@ -215,8 +224,10 @@ def page_collect(factory: sessionmaker) -> None:
     project_id = UUID(project_id_str)
 
     with session_scope(factory) as session:
-        workflow = SqlAlchemyProjectRepository(session).get_workflow(project_id)
-    if workflow is None:
+        project_repository = SqlAlchemyProjectRepository(session)
+        project = project_repository.get(project_id)
+        workflow = project_repository.get_workflow(project_id)
+    if workflow is None or project is None:
         st.error("프로젝트를 찾지 못했다.")
         return
     if workflow.workflow_state not in {WorkflowState.CREATED, WorkflowState.QUERIES_READY}:
@@ -233,8 +244,15 @@ def page_collect(factory: sessionmaker) -> None:
 
     with st.form("collect_form"):
         col1, col2 = st.columns(2)
-        start = col1.date_input("수집 기간 시작", value=date.today().replace(day=1))
-        end = col2.date_input("수집 기간 종료", value=date.today())
+        start = col1.date_input("수집 기간 시작", value=project.analysis_period.start)
+        end = col2.date_input("수집 기간 종료", value=project.analysis_period.end)
+        st.caption(
+            f"기본값은 '1. 월별 프로젝트'에서 설정한 조사 기간"
+            f"({project.analysis_period.start} ~ {project.analysis_period.end})이다. "
+            "필요하면 여기서 바꿀 수 있다. 다만 naver/daum collector는 아직 날짜로 "
+            "결과를 거르지 않는다 — 이 기간은 지금은 안내용이고, 실제 수집 결과를 "
+            "기간으로 제한하는 기능은 아직 구현 전이다(요구사항 §3.1 참고)."
+        )
         keywords_raw = st.text_area(
             "핵심 키워드 (한 줄에 하나, 개수 제한 없음)",
             height=180,
