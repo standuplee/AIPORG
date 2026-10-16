@@ -17,6 +17,7 @@ class Settings(BaseModel):
     naver_client_id: str | None = None
     naver_client_secret: str | None = None
     kakao_rest_api_key: str | None = None
+    youtube_api_key: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -29,6 +30,7 @@ class Settings(BaseModel):
             naver_client_id=os.getenv("AIPORG2_NAVER_CLIENT_ID"),
             naver_client_secret=os.getenv("AIPORG2_NAVER_CLIENT_SECRET"),
             kakao_rest_api_key=os.getenv("AIPORG2_KAKAO_REST_API_KEY"),
+            youtube_api_key=os.getenv("AIPORG2_YOUTUBE_API_KEY"),
         )
 
 

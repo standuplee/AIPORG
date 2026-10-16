@@ -30,11 +30,12 @@ AIPORG 전용 보고서 목차·표지·서식·차트 PNG 배치와 형식별 �
 - **신규 `MultiQueryCollectionToEvidenceWorkflow`(5차, `app/workflows/multi_query_collection_to_evidence.py`):** 기존 `CollectionToEvidenceWorkflow`는 project당 query 1개만 받아 workflow state를 전진시키는 구조라 키워드 N개 fan-out에 못 쓴다(state machine이 각 상태를 한 번만 허용). 새 workflow는 키워드×채널 조합 전체를 먼저 수집하고, `COLLECTION_RUNNING`/`COLLECTION_COMPLETED`를 한 번만 거친 뒤, **그 배치에서 수집된 raw document 전체의 합집합**에 대해 정제·중복제거·Evidence를 한 번에 수행한다 — 이게 "네이버와 구글에서 같은 기사를 발견해도 기사 한 건" 요구의 핵심이다(같은 URL이 다른 키워드에서 또 발견되면 `upsert_raw`가 canonical_url 기준으로 같은 행에 덮어쓰므로 문서 수가 늘지 않고, 그래도 남는 제목/본문 중복은 `DeduplicationService`가 추가로 잡는다). 통합 테스트로 "두 키워드에서 같은 URL이 나와도 문서 1건, 각자 고유 URL은 그대로 보존"을 실제 SQLite로 검증함.
 - 이 workflow도 **한 번만** `QUERIES_READY → ... → EVIDENCE_COMPLETED`를 거친다(기존 workflow와 동일한 설계 제약). 즉 **같은 프로젝트에서 수집을 두 번 실행할 수 없다** — 키워드를 바꿔 다시 돌리려면 새 프로젝트를 만들어야 한다. Streamlit 콘솔의 "2. 수집 설정·실행" 화면은 이 상태를 확인해서, 이미 수집한 프로젝트에서는 폼을 숨기고 안내만 보여준다.
 - `ProjectRepository.list()`, `CollectionRunRepository.list_by_project()` 신규 추가(5차, 신규 schema 아닌 조회 메서드) — Streamlit 콘솔이 세션이 아니라 DB에서 직접 프로젝트/실행 이력을 읽도록 연결했다.
-- 코드 확인 결과(2026-10-16): `app/`에 `hwpx`/`openai`/`anthropic`/`gpt`/`llm` 실제 코드가 없다(HWPX·LLM 연동 0%). `app/models|schemas/{report,visualization}.py`는 각 20~40줄의 빈 contract뿐이고 렌더링/차트/문서 writer가 없다. 1.0(`aiporg/`)에는 2.0으로 아직 포팅 안 된 차트(`aiporg/charts/*`), DOCX writer(`aiporg/report/docx_writer.py`), 블로그/커뮤니티(`aiporg/collect/*`), 유튜브(`aiporg/youtube/*`) 코드가 있다. 댓글 수집(`metadata["document_type"]` 컨벤션), 구글/커뮤니티/블로그/유튜브 collector는 여전히 미구현.
+- **유튜브 collector 추가(7차, `app/collectors/youtube.py`):** `YouTubeCollector`가 YouTube Data API v3(`search.list`+`videos.list`)로 영상 검색·본문(제목+설명)·조회수/좋아요/댓글수를 수집한다. 무료 일일 10,000 유닛 중 `search.list`가 100유닛/호출로 가장 비싸서 기본은 키워드당 1페이지(최대 50건)만 요청한다(`max_pages`로 조정 가능). `AIPORG2_YOUTUBE_API_KEY` 설정 시 Streamlit 콘솔에 자동으로 뜬다. 댓글 수집은 아직 안 함(아래 참고).
+- 코드 확인 결과(2026-10-16): `app/`에 `hwpx`/`openai`/`anthropic`/`gpt`/`llm` 실제 코드가 없다(HWPX·LLM 연동 0%). `app/models|schemas/{report,visualization}.py`는 각 20~40줄의 빈 contract뿐이고 렌더링/차트/문서 writer가 없다. 1.0(`aiporg/`)에는 2.0으로 아직 포팅 안 된 차트(`aiporg/charts/*`), DOCX writer(`aiporg/report/docx_writer.py`), 블로그/커뮤니티(`aiporg/collect/*`) 코드가 있다. 댓글 수집(`metadata["document_type"]` 컨벤션), 구글/커뮤니티/블로그 collector는 여전히 미구현.
 - Phase 6의 순수 템플릿 서술·검증은 일부 구현됐다(`app/narrative/template.py`, 입력 전용 `NarrativeContext`). 출력 계약 결정, 저장, 문장별 근거 매핑, LLM 초안, 사용자 승인, Narrative workflow 통합은 아직 구현되지 않았다.
 - 새 schema나 workflow 상태를 임의로 추가하지 않는다. LLM 초안·수정본·승인본, 시각 자료(Visualization), Report bundle의 저장 계약과 승인 게이트를 먼저 설계 문서에 명시하고 결정한 뒤 구현한다(구현 계획 §2). 이번 5차 작업도 **core 계약(Pydantic schema/DB 테이블)을 하나도 추가하지 않았다** — repository에 추가한 건 조회 메서드(`list`, `list_by_project`)뿐이고, 새 workflow는 기존 서비스(`CleaningService`/`DeduplicationService`/`EvidenceService`/`CollectionService`)를 그대로 재사용한다.
 - 작업 트리에는 이 인계 설정 이전부터 다수의 미커밋 변경이 있다. 인계받는 도구는 이를 기존 작업으로 보존한다.
-- **테스트 환경: 확인·해결됨.** 시스템 `/usr/bin/python3`(3.9.6)에는 `matplotlib==3.11.0`이 설치되지 않는다(3.10+ 필요). 저장소 루트에 Homebrew Python 3.12로 `.venv`를 만들어 `requirements-dev.txt`(+ `streamlit`)를 설치했다. `tests_v2`+`tests` **260 passed**(이전 254 + 신규 6: naver 페이지네이션 2, multi-query workflow unit 3, integration 1). `.venv/`와 `aiporg2.db`는 `.gitignore`에 추가함.
+- **테스트 환경: 확인·해결됨.** 시스템 `/usr/bin/python3`(3.9.6)에는 `matplotlib==3.11.0`이 설치되지 않는다(3.10+ 필요). 저장소 루트에 Homebrew Python 3.12로 `.venv`를 만들어 `requirements-dev.txt`(+ `streamlit`, `python-dotenv`)를 설치했다. `tests_v2`+`tests` **270 passed**. `.venv/`와 `aiporg2.db`는 `.gitignore`에 추가함.
 - `AGENTS.md`의 기존 1~9번 개발 규칙을 유지한다. 같은 checkout에서는 한 번에 한 도구만 파일을 수정한다. 별도 worktree를 쓰면 인계 파일과 코드 변경을 함께 전달한다.
 
 ## Streamlit 실행 방법
@@ -48,12 +49,13 @@ AIPORG 전용 보고서 목차·표지·서식·차트 PNG 배치와 형식별 �
 .venv/bin/streamlit run streamlit_app/console.py
 ```
 
-최초 실행 시 Alembic migration을 자동 적용해 `aiporg2.db`를 만든다. 네이버/다음
-수집을 실제로 돌리려면 `.env` 또는 쉘 환경변수에 `AIPORG2_NAVER_CLIENT_ID`,
-`AIPORG2_NAVER_CLIENT_SECRET`, `AIPORG2_KAKAO_REST_API_KEY`를 설정한다 — 없으면
-해당 채널 체크박스가 비활성화되고 "자격증명 없음"이라고 표시된다(앱이 깨지지
-않는다). 파일명을 `app.py`로 바꾸지 말 것 — 저장소 루트의 `app/` 패키지와 이름이
-충돌해 import가 깨진다(이번에 실제로 재현하고 `console.py`로 고쳤다).
+최초 실행 시 Alembic migration을 자동 적용해 `aiporg2.db`를 만든다. 네이버/다음/
+유튜브 수집을 실제로 돌리려면 `.env` 또는 쉘 환경변수에 `AIPORG2_NAVER_CLIENT_ID`,
+`AIPORG2_NAVER_CLIENT_SECRET`, `AIPORG2_KAKAO_REST_API_KEY`, `AIPORG2_YOUTUBE_API_KEY`
+를 설정한다(정확한 포맷은 `.env.example` 참고) — 없으면 해당 채널 체크박스가
+비활성화되고 "자격증명 없음"이라고 표시된다(앱이 깨지지 않는다). 파일명을
+`app.py`로 바꾸지 말 것 — 저장소 루트의 `app/` 패키지와 이름이 충돌해 import가
+깨진다(이번에 실제로 재현하고 `console.py`로 고쳤다).
 
 **`.env` 키 이름이 반드시 `AIPORG2_` 접두사여야 한다(6차에서 확인·수정).**
 사용자가 `.env`에 넣은 키는 `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`(접두사
@@ -78,9 +80,10 @@ AIPORG2_KAKAO_REST_API_KEY=<카카오 REST API 키 — .env에 아예 없었음,
 새로고침만으로는 안 됨).
 
 알려진 한계: 같은 프로젝트에서 "수집 실행"은 **한 번만** 가능하다(workflow
-state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤니티/블로그/유튜브
-채널은 아직 collector가 없어 체크박스가 비활성 상태로만 표시된다. 댓글은
-아직 수집하지 않는다. "4. 통계·이슈 검토"는 canonical 문서 수·Evidence 수·
+state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤니티/블로그
+채널은 아직 collector가 없어 체크박스가 비활성 상태로만 표시된다(유튜브는
+7차에서 추가됨). 댓글은 아직 수집하지 않는다(유튜브 포함 전 채널 공통).
+"4. 통계·이슈 검토"는 canonical 문서 수·Evidence 수·
 목록만 보여주고, 감성·연관 키워드·비교기간 등 전체 `AnalyticsSnapshot` 집계는
 아직 연결하지 않았다(M2).
 
@@ -91,7 +94,7 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 | 단계 | 구현 내용 | 상태 |
 | --- | --- | --- |
 | Phase 0~2 | 1.0과 분리한 `app/` 계약·상태 머신, 테스트 환경, DB migration·repository 구현 | 완료, 2026-10-16 재확인(254 passed) |
-| Phase 3 | 수집 → 정제·중복 제거 → Evidence 저장과 실패 후 재개 | 네이버/다음만, 하지만 Streamlit에서 키워드 N개 fan-out까지 실제로 동작(5차). 구글/커뮤니티/블로그/유튜브·댓글은 미구현 |
+| Phase 3 | 수집 → 정제·중복 제거 → Evidence 저장과 실패 후 재개 | 네이버/다음/유튜브, Streamlit에서 키워드 N개 fan-out까지 실제로 동작(5·7차). 구글/커뮤니티/블로그·댓글은 미구현 |
 | Phase 4 | Evidence → 검증된 Fact → Issue 확정과 출처 역추적 | 기록상 완료 |
 | Phase 5 | canonical 문서 기준 언급량·채널·키워드·감성·비교기간 집계와 AnalyticsSnapshot | 기록상 완료 |
 | Phase 6 | GPT/Claude 서술 초안, 근거·수치 검증, 초안·수정·승인 버전 저장, Streamlit 검수 UI | 템플릿 서술 일부 + Streamlit 콘솔 화면 1~3 동작; 나머지 미구현 |
@@ -102,7 +105,7 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 
 ## 정확한 다음 행동
 
-1. 구글 수집기를 신규로 만든다(1.0에도 코드 없음 — 2026-10-16 결정으로 범위 포함됨). 커뮤니티(클리앙/디시/펨코/루리웹/더쿠)·블로그·유튜브는 1.0 코드를 2.0 계약으로 포팅한다. 전부 `MultiQueryCollectionToEvidenceWorkflow`의 `CollectionRequest.collector`로 바로 꽂을 수 있는 구조다.
+1. 구글 수집기를 신규로 만든다(1.0에도 코드 없음 — 2026-10-16 결정으로 범위 포함됨). 커뮤니티(클리앙/디시/펨코/루리웹/더쿠)·블로그는 1.0 코드를 2.0 계약으로 포팅한다(유튜브는 7차에서 이미 포팅함). 전부 `MultiQueryCollectionToEvidenceWorkflow`의 `CollectionRequest.collector`로 바로 꽂을 수 있는 구조다.
 2. 댓글 수집 컨벤션(`metadata["document_type"]="comment"`, `parent_document_id`)을 실제 collector에 구현한다.
 3. Narrative 출력·Visualization·Report의 초안·수정·승인·문장 근거·시각 자산 버전 저장 계약을 명시적으로 결정한다(구현 계획 §2, §7 결정 목록 중 미해결: HWPX 자산 확보, Narrative/Visualization/Report 계약, LLM provider 최종 선택/비용, 1.0 수집기 포팅 범위).
 4. `AnalyticsService`를 Streamlit "4. 통계·이슈 검토" 화면에 연결해 감성·연관 키워드·채널 분포·비교기간 지표를 실제로 보여준다(M2).
@@ -237,6 +240,47 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
   (내용 확인은 변수 이름만, 값은 보지 않음).
 - `tests_v2`+`tests` 260 passed 유지(이번 변경은 UI 레이어 글루 코드라 기존
   테스트 범위 밖, 신규 테스트는 추가하지 않음).
+
+## 이번 작업과 검증 (2026-10-16, 7차: 유튜브 collector)
+
+사용자 요청: 유튜브 Data API v3와 Gemini 2.5 Pro를 "무료 한도 내에서" 쓰고
+싶다, 파이프라인이 제대로 안 되어 있는지 확인해달라.
+
+- **유튜브: 신규 구현.** `app/collectors/youtube.py`의 `YouTubeCollector`가
+  `search.list`(키워드→영상 ID, 기본 1페이지/최대 50건)와
+  `videos.list`(영상별 제목+설명+조회수/좋아요/댓글수, 1 unit/호출)를
+  호출한다. 무료 일일 10,000 유닛 중 `search.list`가 100유닛으로 제일
+  비싸서, 키워드 4~5개를 기본 설정으로 돌려도 수백 유닛 수준이라 여유
+  있게 무료 한도 안에 든다(`max_pages`로 더 넓게 수집할 수도 있음,
+  유닛 비용이 선형으로 늘어난다는 점은 호출 쪽에서 인지해야 함). 1.0의
+  `aiporg/youtube/collector.py`를 참고했지만 그대로 재사용하지 않고 2.0
+  `CollectorProtocol`(search/fetch 분리, repository 외 DB write 없음)에
+  맞춰 새로 짰다 — 1.0은 project당 한 번에 여러 키워드를 묶어 `videos.list`
+  를 50개씩 배치 호출하지만, 2.0은 키워드별로 `search()`를 따로 호출하는
+  구조라 그 최적화는 그대로 옮기지 못했다(여전히 무료 한도 안에는 충분히
+  든다). 댓글(`commentThreads.list`)은 구현하지 않았다 — 전 채널 공통으로
+  아직 미구현인 "댓글 포함" 결정 사항(§확정된 결정)과 같이 처리할 대상.
+  `AIPORG2_YOUTUBE_API_KEY`를 설정하면 Streamlit "2. 수집 설정·실행"에
+  자동으로 뜬다. unit test 10개 추가(생성자 검증, 페이지네이션, fetch
+  본문/통계 조합, malformed/서버 오류 처리).
+- **채널 버그 발견·수정:** 유튜브를 끼워 넣으면서 보니
+  `streamlit_app/console.py`가 모든 provider의 `SearchQuery.channels`를
+  `ChannelType.NEWS`로 하드코딩하고 있었다(naver/daum만 있을 때는 우연히
+  맞았음). `PROVIDER_CHANNELS` 매핑(naver/daum→NEWS, youtube→VIDEO)을
+  추가해 고쳤고, 실제 수집 후 DB에 `channel='VIDEO'`로 저장되는 것까지
+  확인했다.
+- **Gemini: 구현하지 않음, 사용자 결정 필요.** LLM 서술 초안(M3)은 narrative
+  출력/승인 계약(M0)이 아직 결정 전이라 임의로 설계하지 않았다(§사용자가
+  결정할 사항 2번, 전부터 미해결로 남아 있던 항목). 모델 선택도 짚을 점이
+  있다: `.env.example`의 기존 주석은 "Gemini 2.5 Pro"였지만, 무료 티어는
+  flash 계열(`gemini-2.0-flash`/`gemini-2.5-flash`)이 Pro보다 훨씬 넉넉한
+  무료 할당량을 준다 — "무료 한도 내에서" 쓰려면 Pro보다 flash가 현실적인
+  기본값일 가능성이 높다. 진행하려면 (1) M0 narrative 출력 계약을 최소
+  범위로 먼저 결정하고 (2) 모델을 확정해야 한다 — 다음 턴에서 사용자에게
+  직접 물어봄.
+- `tests_v2`+`tests` **270 passed**(260 + 유튜브 collector 10). 실제 YouTube
+  API 네트워크 호출은 하지 않았다(키 미설정 상태로 검증, fixture collector로
+  Streamlit 콘솔 전체 경로까지 확인).
 
 작업을 이어받는 도구는 완료 작업·변경 파일·검증 결과·막힌 점·다음 행동을 이 문서에 최신 상태로 갱신한다. 채팅 원문이나 비밀값은 기록하지 않는다.
 

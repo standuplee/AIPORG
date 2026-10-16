@@ -48,6 +48,7 @@ from sqlalchemy.orm import sessionmaker
 from app.cleaning.service import CleaningService
 from app.collectors.daum_news import DaumNewsCollector
 from app.collectors.naver_news import NaverNewsCollector
+from app.collectors.youtube import YouTubeCollector
 from app.core.config import Settings, get_settings
 from app.core.enums import ChannelType, CollectionRunStatus, WorkflowState
 from app.core.state_machine import InvalidStateTransitionError
@@ -72,12 +73,16 @@ from app.workflows.multi_query_collection_to_evidence import (
 )
 
 # label -> settings credential key used to build the real collector.
-IMPLEMENTED_PROVIDERS = ["naver", "daum"]
-PROVIDER_LABELS = {"naver": "네이버 뉴스", "daum": "다음 뉴스"}
+IMPLEMENTED_PROVIDERS = ["naver", "daum", "youtube"]
+PROVIDER_LABELS = {"naver": "네이버 뉴스", "daum": "다음 뉴스", "youtube": "유튜브"}
+PROVIDER_CHANNELS = {
+    "naver": ChannelType.NEWS,
+    "daum": ChannelType.NEWS,
+    "youtube": ChannelType.VIDEO,
+}
 PLANNED_PROVIDERS = [
     "구글 검색 (범위 포함, 수집기 미구현 — M1)",
     "커뮤니티: 클리앙/디시인사이드/펨코/루리웹/더쿠 (목록 확정, 수집기 포팅 전 — M1)",
-    "유튜브 (1.0 코드 존재, 2.0 포팅 전 — M1)",
 ]
 NOT_IMPLEMENTED_PAGES = {
     "서술 편집 (LLM 초안)": (
@@ -127,6 +132,8 @@ def build_collectors(settings: Settings) -> dict[str, object]:
         )
     if settings.kakao_rest_api_key:
         collectors["daum"] = DaumNewsCollector(api_key=settings.kakao_rest_api_key)
+    if settings.youtube_api_key:
+        collectors["youtube"] = YouTubeCollector(api_key=settings.youtube_api_key)
     return collectors
 
 
@@ -306,7 +313,13 @@ def _run_collection(
     selected_providers: list[str],
     collectors: dict[str, object],
 ) -> None:
-    queries = [SearchQuery(query=keyword, channels=[ChannelType.NEWS]) for keyword in keywords]
+    requested_channels = sorted(
+        {PROVIDER_CHANNELS[provider_key] for provider_key in selected_providers},
+        key=lambda channel: channel.value,
+    )
+    queries = [
+        SearchQuery(query=keyword, channels=requested_channels) for keyword in keywords
+    ]
 
     status_line = st.empty()
     status_line.write(
@@ -330,7 +343,9 @@ def _run_collection(
                 collector=collectors[provider_key],
                 query_id=query_id_by_text[keyword],
                 run_id=uuid4(),
-                query=SearchQuery(query=keyword, channels=[ChannelType.NEWS]),
+                query=SearchQuery(
+                    query=keyword, channels=[PROVIDER_CHANNELS[provider_key]]
+                ),
             )
             for keyword in keywords
             if keyword in query_id_by_text
