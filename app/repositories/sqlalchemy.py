@@ -36,7 +36,12 @@ from app.schemas.document import (
 from app.schemas.evidence import EvidenceId, EvidenceRead, EvidenceSchema
 from app.schemas.fact import FactId, FactRead, FactSchema, NumericFactSchema
 from app.schemas.issue import IssueDetailSchema, IssueId, IssueRead, IssueSchema
-from app.schemas.narrative import NarrativeContext, NarrativeRead
+from app.schemas.narrative import (
+    NarrativeContext,
+    NarrativeOutputRead,
+    NarrativeOutputSchema,
+    NarrativeRead,
+)
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectWorkflowSnapshot
 from app.schemas.query import QueryId, SearchQuery
 from app.schemas.report import ReportRead, ReportSchema
@@ -625,10 +630,53 @@ class SqlAlchemyNarrativeRepository(_Repository):
         return context
 
     def get_latest(self, project_id: ProjectId) -> NarrativeRead | None:
-        row = self.session.scalar(select(Narrative).where(
+        rows = self.session.scalars(select(Narrative).where(
             Narrative.project_id == project_id
-        ).order_by(Narrative.created_at.desc(), Narrative.id.desc()))
-        return NarrativeContext.model_validate(row.context) if row is not None else None
+        ).order_by(Narrative.created_at.desc(), Narrative.id.desc())).all()
+        for row in rows:
+            if not self._is_output_row(row.context):
+                return NarrativeContext.model_validate(row.context)
+        return None
+
+    def save_output(
+        self, project_id: ProjectId, output: NarrativeOutputSchema
+    ) -> NarrativeOutputRead:
+        if output.project_id != project_id:
+            raise RepositoryConflictError("narrative output project_id does not match")
+        self.session.add(Narrative(
+            id=output.run.run_id,
+            project_id=project_id,
+            issue_id=None,
+            context={"kind": "narrative_output", "data": output.model_dump(mode="json")},
+            run_id=output.run.run_id,
+            input_version=output.run.input_version,
+            output_version=output.run.output_version,
+        ))
+        self._flush()
+        return output
+
+    def get_latest_output(self, project_id: ProjectId) -> NarrativeOutputRead | None:
+        rows = self.session.scalars(select(Narrative).where(
+            Narrative.project_id == project_id
+        )).all()
+        outputs = [
+            NarrativeOutputSchema.model_validate(row.context["data"])
+            for row in rows
+            if self._is_output_row(row.context)
+        ]
+        if not outputs:
+            return None
+        # SQLite's CURRENT_TIMESTAMP (Narrative.created_at's server default)
+        # only has 1-second resolution, so several versions saved within the
+        # same second would tie under an SQL ORDER BY on it. Each output
+        # carries its own higher-resolution run.created_at in the payload;
+        # use that instead so "latest" is well-defined even when a user
+        # regenerates a draft more than once within the same second.
+        return max(outputs, key=lambda output: output.run.created_at)
+
+    @staticmethod
+    def _is_output_row(context: object) -> bool:
+        return isinstance(context, dict) and context.get("kind") == "narrative_output"
 
 
 class SqlAlchemyVisualizationRepository(_Repository):

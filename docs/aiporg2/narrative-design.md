@@ -1,6 +1,15 @@
 # Phase 6 Narrative 계약 불일치와 구현안
 
-작성: 2026-09-23. 상태: 출력 저장 계약 결정 대기.
+작성: 2026-09-23. 상태: **출력 저장 계약 결정·구현 완료(2026-10-16)** — 아래
+"권장안"을 그대로 채택해 `app/schemas/narrative.py`(`NarrativeSentenceSchema`,
+`NarrativeGenerationSchema`, `NarrativeOutputSchema`)와
+`app/repositories/{narrative,sqlalchemy}.py`(`save_output`,
+`get_latest_output`)로 구현했다. 상세는
+`docs/superpowers/plans/2026-09-08-aiporg2-implementation.md`의 "8차"
+절과 HANDOFF.md 참고. LLM adapter(Gemini, `app/narrative/llm_adapter.py`)도
+같이 구현했지만, draft orchestration service와 Streamlit UI 연결은 아직
+없다 — Issue/AnalyticsSnapshot이 콘솔에 연결돼 있지 않아 입력
+(`NarrativeContext`) 자체를 만들 방법이 없다.
 
 ## 2026-10-16 요구 개정 (아래 과거안보다 우선)
 

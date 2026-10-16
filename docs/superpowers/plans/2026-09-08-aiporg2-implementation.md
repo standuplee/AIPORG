@@ -566,6 +566,68 @@ multi-query unit 3 + 통합 1). 실 네이버/다음 API 네트워크 호출은 
 않았다 — repository 조회 메서드와 기존 서비스를 재사용하는 새 orchestration
 class만 추가했다.
 
+## 2026-10-16 유튜브 collector, Narrative 출력 계약, Gemini 어댑터 (7·8차)
+
+사용자가 "유튜브 Data API v3와 Gemini를 무료 한도 내에서 쓰고 싶다"고
+요청했다. 유튜브는 바로 구현했고(7차), Gemini는 narrative 출력 계약이 미결정
+상태였어서 먼저 "최소 계약으로 narrative 저장 구조만 결정하고 구현할지"
+사용자에게 물었다 — 그렇게 하기로 했고 모델은 `gemini-2.0-flash`로 정했다(8차).
+
+### 7차: `app/collectors/youtube.py`
+
+YouTube Data API v3 `search.list`(키워드→영상 ID, 기본 1페이지/최대 50건 —
+무료 일일 10,000 유닛 중 100유닛/호출로 가장 비싼 호출이라 기본을 보수적으로
+잡음, `max_pages`로 조정 가능)와 `videos.list`(영상별 제목/설명/통계,
+1유닛/호출)를 호출한다. `aiporg/youtube/collector.py`(1.0)를 참고했지만
+그대로 재사용하지 않고 2.0 `CollectorProtocol`(search/fetch 분리)에 맞춰
+새로 작성했다 — 1.0은 project당 여러 키워드를 모아 `videos.list`를 50개씩
+배치 호출하지만, 2.0은 키워드별로 `search()`를 따로 호출하는 구조라 그
+최적화는 옮기지 못했다(그래도 무료 한도 안에는 충분히 든다). 댓글
+(`commentThreads.list`)은 구현하지 않았다. `Settings.youtube_api_key`/
+`AIPORG2_YOUTUBE_API_KEY` 추가, Streamlit `PROVIDER_CHANNELS`에 연결.
+
+연결하며 기존 버그 하나를 발견·수정함: `streamlit_app/console.py`가 모든
+provider의 `SearchQuery.channels`를 `ChannelType.NEWS`로 하드코딩하고
+있었다(naver/daum만 있을 때는 우연히 맞았음). `PROVIDER_CHANNELS` 매핑으로
+고치고 DB에 `channel='VIDEO'`로 저장되는 것까지 확인했다.
+
+unit test 10개(`tests_v2/unit/test_youtube_collector.py`).
+
+### 8차: Narrative 출력 계약 결정·구현 + `GeminiNarrativeAdapter`
+
+`docs/aiporg2/narrative-design.md`의 2026-09-23 권장안(신규 테이블 없이 기존
+`narratives.context` JSON에 구분 가능한 envelope로 저장)을 최종 채택해
+구현했다. 상세는 그 문서와 HANDOFF.md의 "8차" 절 참고. 요약:
+
+- `app/schemas/narrative.py`에 `NarrativeSentenceSchema`/
+  `NarrativeGenerationSchema`/`NarrativeOutputSchema`를 **추가만** 함.
+  `NarrativeContext`, `ReportSchema.context: NarrativeContext` 등 기존 계약은
+  그대로 유지.
+- `NarrativeRepository.save_output`/`get_latest_output` 추가. 출력 row는
+  `context` JSON에 `{"kind": "narrative_output", "data": {...}}`로 저장,
+  입력 row는 기존 그대로(`NarrativeContext`가 `extra="forbid"`라 입력 row에는
+  구조적으로 `kind` 키가 있을 수 없다는 점으로 구분 — 신규 컬럼 없음). 기존
+  `get_latest()`가 출력 row를 건너뛰도록 고쳐서, 출력을 저장해도 기존 입력
+  조회 결과가 그대로임을 테스트로 확인.
+- 테스트 중 발견: `get_latest_output()`을 DB `created_at` 정렬로 처음 짰더니
+  SQLite `CURRENT_TIMESTAMP`의 1초 해상도 때문에 같은 초 안의 재생성 순서가
+  비결정적이었다 — 각 출력이 자기 payload에 갖는 고해상도 `run.created_at`
+  으로 비교하도록 고쳤다.
+- `app/narrative/llm_adapter.py`의 `GeminiNarrativeAdapter`: Context+Analytics+
+  Evidence로 프롬프트를 만들어 Gemini `generateContent`(JSON 응답 모드)를
+  호출하고, **모델의 인용을 그대로 믿지 않는다** — 각 문장의 fact/evidence/
+  document id와 analytics_paths가 실제 입력에 있는지 검사해서 근거 없는
+  문장은 버리고, 전부 버려지면 `NarrativeGenerationError`로 실패한다.
+- 의도적으로 안 한 것: draft orchestration service(호출+fallback+저장을
+  묶는 상위 서비스), Streamlit "5. 서술 편집" 연결. 후자는 더 근본적인
+  이유가 있다 — 이 콘솔에 Issue 확정과 AnalyticsSnapshot 생성이 전혀
+  연결돼 있지 않아 `NarrativeContext` 입력 자체를 만들 수 없다(다음 행동
+  1순위로 HANDOFF에 기록함).
+
+unit test 15개(narrative output schema 6, Gemini adapter 9) + repository
+테스트 보강 1개. `tests_v2`+`tests` **282 passed**(270 + 12). 실제 Gemini
+API 네트워크 호출은 하지 않았다(가짜 transport로 검증).
+
 ## 1. 목표
 
 현재 구현된 AIPORG 2.0의 schema, SQLAlchemy model, repository protocol,

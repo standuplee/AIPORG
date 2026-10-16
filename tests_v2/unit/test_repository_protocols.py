@@ -143,7 +143,7 @@ def test_remaining_repositories_expose_schema_typed_phase_zero_operations() -> N
         FactRepository: {"save_batch", "get"},
         IssueRepository: {"save_batch", "get"},
         AnalyticsRepository: {"create", "get_latest"},
-        NarrativeRepository: {"save", "get_latest"},
+        NarrativeRepository: {"save", "get_latest", "save_output", "get_latest_output"},
         VisualizationRepository: {"create", "list_by_project"},
         ReportRepository: {"create", "get_latest"},
     }

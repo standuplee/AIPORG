@@ -86,8 +86,12 @@ PLANNED_PROVIDERS = [
 ]
 NOT_IMPLEMENTED_PAGES = {
     "서술 편집 (LLM 초안)": (
-        "M3(LLM adapter)가 아직 없다. 템플릿 서술(`app/narrative/template.py`)만 "
-        "존재하며 출력/승인 계약(M0)도 결정 전이다."
+        "Gemini 어댑터(`app/narrative/llm_adapter.py`)와 narrative 출력 저장 "
+        "계약(`NarrativeOutputSchema`, `NarrativeRepository.save_output`)은 "
+        "이미 구현·테스트됐다. 이 화면에 아직 못 붙인 이유는 입력 데이터가 "
+        "없어서다 — Issue 확정(`app/issues/*`)과 AnalyticsSnapshot 생성"
+        "(`app/analytics/service.py`)이 이 콘솔 어디에도 연결돼 있지 않아 "
+        "`NarrativeContext`를 만들 수 없다. 수정·버전 비교·승인 UI도 아직 없다."
     ),
     "시각 자료 편집·승인": (
         "M0에서 Visualization 계약을 결정하기 전까지 구현하지 않는다. "

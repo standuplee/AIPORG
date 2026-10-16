@@ -13,6 +13,7 @@ def test_settings_use_only_aiporg2_environment(monkeypatch) -> None:
     monkeypatch.setenv("AIPORG2_NAVER_CLIENT_SECRET", "naver-secret")
     monkeypatch.setenv("AIPORG2_KAKAO_REST_API_KEY", "kakao-key")
     monkeypatch.setenv("AIPORG2_YOUTUBE_API_KEY", "youtube-key")
+    monkeypatch.setenv("AIPORG2_GEMINI_API_KEY", "gemini-key")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///legacy.db")
 
     settings = Settings.from_env()
@@ -23,6 +24,7 @@ def test_settings_use_only_aiporg2_environment(monkeypatch) -> None:
     assert settings.naver_client_secret == "naver-secret"
     assert settings.kakao_rest_api_key == "kakao-key"
     assert settings.youtube_api_key == "youtube-key"
+    assert settings.gemini_api_key == "gemini-key"
     assert settings.environment == "development"
 
 

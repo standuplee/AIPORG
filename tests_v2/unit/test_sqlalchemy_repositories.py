@@ -43,7 +43,11 @@ from app.schemas.document import CleanDocument, RawDocument
 from app.schemas.evidence import EvidenceSchema
 from app.schemas.fact import FactSchema, NumericFactSchema
 from app.schemas.issue import IssueDetailSchema, IssueSchema
-from app.schemas.narrative import NarrativeContext
+from app.schemas.narrative import (
+    NarrativeContext,
+    NarrativeOutputSchema,
+    NarrativeSentenceSchema,
+)
 from app.schemas.project import ProjectCreate
 from app.schemas.query import SearchQuery
 from app.schemas.report import ReportSchema
@@ -208,6 +212,37 @@ def test_downstream_repositories_round_trip_fixed_contracts() -> None:
         narrative_repo = SqlAlchemyNarrativeRepository(session)
         narrative_repo.save(project.project_id, context)
         assert narrative_repo.get_latest(project.project_id) == context
+        assert narrative_repo.get_latest_output(project.project_id) is None
+
+        output = NarrativeOutputSchema(
+            project_id=project.project_id,
+            run=VersionedRunSchema(
+                run_id=uuid4(), input_version="v1", output_version="v1", created_at=now,
+            ),
+            sentences=[
+                NarrativeSentenceSchema(text="템플릿 문장.", fact_ids=[fact.fact_id]),
+            ],
+        )
+        narrative_repo.save_output(project.project_id, output)
+        # saving an output version must not change what the *input context*
+        # query returns -- they are different shapes sharing one table.
+        assert narrative_repo.get_latest(project.project_id) == context
+        assert narrative_repo.get_latest_output(project.project_id) == output
+
+        # A regenerated draft within the same wall-clock second must still
+        # be recognized as the newer version (SQLite's CURRENT_TIMESTAMP only
+        # has 1-second resolution, so this cannot rely on DB insertion order).
+        revised_output = output.model_copy(update={
+            "run": VersionedRunSchema(
+                run_id=uuid4(), input_version="v1", output_version="v2",
+                created_at=now.replace(microsecond=now.microsecond + 1 if now.microsecond < 999_999 else 0),
+            ),
+            "sentences": [
+                NarrativeSentenceSchema(text="재생성된 문장.", fact_ids=[fact.fact_id]),
+            ],
+        })
+        narrative_repo.save_output(project.project_id, revised_output)
+        assert narrative_repo.get_latest_output(project.project_id) == revised_output
 
         asset = VisualizationAssetSchema(
             visualization_id=uuid4(), project_id=project.project_id,

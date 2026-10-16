@@ -105,11 +105,11 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 
 ## 정확한 다음 행동
 
-1. 구글 수집기를 신규로 만든다(1.0에도 코드 없음 — 2026-10-16 결정으로 범위 포함됨). 커뮤니티(클리앙/디시/펨코/루리웹/더쿠)·블로그는 1.0 코드를 2.0 계약으로 포팅한다(유튜브는 7차에서 이미 포팅함). 전부 `MultiQueryCollectionToEvidenceWorkflow`의 `CollectionRequest.collector`로 바로 꽂을 수 있는 구조다.
-2. 댓글 수집 컨벤션(`metadata["document_type"]="comment"`, `parent_document_id`)을 실제 collector에 구현한다.
-3. Narrative 출력·Visualization·Report의 초안·수정·승인·문장 근거·시각 자산 버전 저장 계약을 명시적으로 결정한다(구현 계획 §2, §7 결정 목록 중 미해결: HWPX 자산 확보, Narrative/Visualization/Report 계약, LLM provider 최종 선택/비용, 1.0 수집기 포팅 범위).
-4. `AnalyticsService`를 Streamlit "4. 통계·이슈 검토" 화면에 연결해 감성·연관 키워드·채널 분포·비교기간 지표를 실제로 보여준다(M2).
-5. mock LLM adapter(키 없이 template fallback) → 시각 자료 2종(채널 도넛, TOP10 카드)만 편집 UI에 연결 → HWPX 3쪽(표지/목차/요약) 시제품 순으로 1차 최소 단위를 넓힌다(구현 계획 §6).
+1. Issue 확정(`app/issues/*`)과 `AnalyticsService`를 Streamlit 콘솔에 연결한다 — 지금 "5. 서술 편집"이 Gemini 어댑터까지 다 준비됐는데도 못 붙은 유일한 이유가 `NarrativeContext`를 만들 입력(Issue/AnalyticsSnapshot)이 콘솔 어디에도 없어서다. 이게 되면 narrative 초안 생성 버튼을 바로 붙일 수 있다.
+2. 구글 수집기를 신규로 만든다(1.0에도 코드 없음 — 2026-10-16 결정으로 범위 포함됨). 커뮤니티(클리앙/디시/펨코/루리웹/더쿠)·블로그는 1.0 코드를 2.0 계약으로 포팅한다(유튜브는 7차에서 이미 포팅함). 전부 `MultiQueryCollectionToEvidenceWorkflow`의 `CollectionRequest.collector`로 바로 꽂을 수 있는 구조다.
+3. 댓글 수집 컨벤션(`metadata["document_type"]="comment"`, `parent_document_id`)을 실제 collector에 구현한다.
+4. Visualization·Report의 시각 자산 버전/승인 저장 계약을 명시적으로 결정한다(Narrative 출력 계약은 8차에서 이미 결정·구현함 — 구현 계획 §2, §7 결정 목록 중 미해결: HWPX 자산 확보, Visualization/Report 계약, 1.0 수집기 포팅 범위).
+5. 시각 자료 2종(채널 도넛, TOP10 카드)만 편집 UI에 연결 → HWPX 3쪽(표지/목차/요약) 시제품 순으로 1차 최소 단위를 넓힌다(구현 계획 §6).
 6. 별도 python-hwpx를 연결하고 7월 보고서의 대표 페이지 시제품을 실제 한컴에서 검증한다.
 
 ## 확정된 결정 (2026-10-16)
@@ -129,8 +129,14 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
   아님). analytics 집계는 article/comment를 분리한다. (아직 collector에 실제
   구현 안 됨 — M1 대상.)
 - **LLM은 API 직접 연결, 키는 추후 제공.** CLI 구독이 아니라 API 호출로 확정.
-  키가 없을 때 adapter는 기존 template 서비스로 자동 fallback해야 한다. GPT/Claude
-  중 어느 쪽을 쓸지는 미정 — provider를 설정값으로 선택 가능하게 구현.
+  키가 없을 때 adapter는 기존 template 서비스로 자동 fallback해야 한다. provider를
+  설정값으로 선택 가능하게 구현.
+- **LLM provider: Gemini, 모델은 `gemini-2.0-flash`(8차 결정).** 무료 티어
+  할당량이 2.5-pro보다 훨씬 넉넉해서 "무료 한도 내에서" 요구에 맞는 쪽을
+  추천안으로 제시했고 사용자가 채택했다. `app/narrative/llm_adapter.py`의
+  `GeminiNarrativeAdapter(model=...)`로 다른 Gemini 모델로 바꿀 수 있다.
+  GPT/Claude는 당장 쓰지 않지만 provider를 어댑터 교체로 바꿀 수 있는 구조는
+  유지했다(narrative 계층에만 LLM 호출이 있고 collector/analyzer는 안 건드림).
 - **X·인스타그램 제외, 구글 포함.** X·인스타그램은 유료 접근으로 판단해 1차
   범위에서 완전히 뺀다. 구글은 범위에 포함하되 수집기는 아직 미구현.
 - **커뮤니티 목록은 1.0 그대로.** clien/dcinside/fmkorea/ruliweb/theqoo 5개
@@ -143,9 +149,12 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 ## 사용자가 결정할 사항 (미해결, 상세는 구현 계획 §7)
 
 1. 원본 HWPX/로고/표지 사진 확보 가능 여부
-2. Narrative 출력·승인·시각 자산 버전 계약 제안안 채택 여부
-3. LLM provider(GPT/Claude) 최종 선택, API 키/비용 책임, 월 예산
-4. 1.0 유튜브/커뮤니티/블로그 수집기 "포팅" vs "재작성" 여부와 범위
+2. Visualization·Report 시각 자산 버전/승인 저장 계약 채택 여부(Narrative 출력
+   계약은 8차에서 최소 범위로 결정·구현 완료 — 아래 참고)
+3. Gemini API 키/비용 책임, 월 예산(provider·모델은 8차에서 결정: Gemini
+   gemini-2.0-flash)
+4. 1.0 커뮤니티/블로그 수집기 "포팅" vs "재작성" 여부와 범위(유튜브는 7차에서
+   이미 포팅함)
 
 ## 이번 작업과 검증 (2026-10-16, 5차: 수집 정확도 + 파이프라인 연결)
 
@@ -281,6 +290,59 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 - `tests_v2`+`tests` **270 passed**(260 + 유튜브 collector 10). 실제 YouTube
   API 네트워크 호출은 하지 않았다(키 미설정 상태로 검증, fixture collector로
   Streamlit 콘솔 전체 경로까지 확인).
+
+## 이번 작업과 검증 (2026-10-16, 8차: Narrative 출력 계약 + Gemini 어댑터)
+
+사용자가 7차 질문에 "최소 계약으로 narrative 저장 구조만 먼저 결정하고 구현"과
+"모델은 gemini-2.0-flash"를 선택했다.
+
+- **Narrative 출력 계약 결정·구현.** `docs/aiporg2/narrative-design.md`의
+  2026-09-23 권장안(신규 테이블 없이 기존 `narratives.context` JSON에 구분
+  가능한 envelope로 저장)을 그대로 채택해 구현했다. `app/schemas/narrative.py`에
+  `NarrativeSentenceSchema`(text + fact_ids/evidence_ids/document_ids/
+  analytics_paths 중 최소 1개 필수), `NarrativeGenerationSchema`(provider/
+  model/prompt_version/input_snapshot_sha256/generated_at/usage),
+  `NarrativeOutputSchema`(project_id/run/analytics_run_id/generation/
+  sentences)를 **추가만** 했다 — 기존 `NarrativeContext`, `ReportSchema.context:
+  NarrativeContext` 등 기존 계약은 이름·필드 그대로 유지. DB 컬럼/테이블도
+  추가하지 않았다.
+- **`NarrativeRepository`에 `save_output`/`get_latest_output` 추가.** 출력
+  row는 `context` JSON에 `{"kind": "narrative_output", "data": {...}}`로
+  저장하고, 입력 row는 기존 그대로(`kind` 키 없음 — `NarrativeContext`가
+  `extra="forbid"`라 입력 row에는 구조적으로 그 키가 있을 수 없다는 점을
+  이용한 구분, 신규 컬럼 없이 안전하게 구분됨). 기존 `get_latest()`는 `kind`
+  있는 row를 건너뛰도록 한 줄만 고쳐서 **출력 row를 저장해도 기존 입력 조회
+  결과가 그대로**임을 테스트로 확인했다.
+- **버그 발견·수정(테스트 중):** `get_latest_output()`을 DB `created_at` 기준
+  정렬로 처음 짰더니, SQLite `CURRENT_TIMESTAMP`가 1초 해상도라 같은 초 안에
+  초안을 두 번 저장(재생성)하면 어느 게 "최신"인지 비결정적이었다. 대신 각
+  출력이 자기 payload 안에 갖고 있는 `run.created_at`(Python 쪽에서 만드는
+  고해상도 시각)으로 비교하도록 고쳤다 — 같은 초 안에 재생성해도 올바른
+  최신 버전을 반환하는 것까지 테스트로 검증함.
+- **`GeminiNarrativeAdapter` 신규 구현(`app/narrative/llm_adapter.py`).**
+  `NarrativeContext` + `AnalyticsSnapshotSchema` + `Evidence` 목록을 받아
+  프롬프트를 만들고, Gemini `generateContent`(`responseMimeType:
+  application/json`)를 호출해 문장 배열을 받는다. **모델의 인용을 그대로
+  믿지 않는다** — 각 문장의 `fact_ids`/`evidence_ids`/`document_ids`가 실제
+  입력에 있는 id인지, `analytics_paths`가 실제 `analytics.metrics`의 키인지
+  검사해서 근거 없는 문장은 조용히 버린다(전부 버려지면
+  `NarrativeGenerationError(code="no_grounded_sentences")`로 실패). 키가
+  없으면 이 어댑터를 생성할 수 없다(`ValueError`) — 호출하는 쪽이 기존
+  `TemplateNarrativeService`로 fallback하는 책임을 진다(이 모듈 자체는
+  fallback 로직을 갖고 있지 않음, 아직 그 상위 draft service를 만들지
+  않았기 때문 — 아래 참고).
+- **아직 안 한 것(의도적으로 범위를 좁힘):** (1) narrative draft orchestration
+  service(Context+Analytics+Evidence를 모아 adapter 호출 후
+  `save_output` 호출, 실패 시 template fallback) 없음. (2) Streamlit
+  "5. 서술 편집" 화면 연결 없음 — 더 근본적인 이유가 있다: 이 콘솔에는 Issue
+  확정과 AnalyticsSnapshot 생성이 **아예 연결돼 있지 않아서** `NarrativeContext`
+  를 만들 입력 자체가 없다(Phase 4/5 코드는 `app/`에 있지만 `streamlit_app/
+  console.py`가 호출 안 함). "5. 서술 편집" 미구현 안내 문구를 이 상태에
+  맞게 고쳤다 — "LLM adapter가 없다"가 아니라 "adapter는 있는데 입력이
+  없다"로. (3) 사용자 수정 UI, 버전 비교 UI 없음.
+- `tests_v2`+`tests` **282 passed**(270 + narrative output schema 6 + Gemini
+  adapter 9 + repository 1). 실제 Gemini API 네트워크 호출은 하지 않았다(가짜
+  transport로 성공/부분 근거 탈락/전체 탈락/malformed/http 오류 각각 검증).
 
 작업을 이어받는 도구는 완료 작업·변경 파일·검증 결과·막힌 점·다음 행동을 이 문서에 최신 상태로 갱신한다. 채팅 원문이나 비밀값은 기록하지 않는다.
 
