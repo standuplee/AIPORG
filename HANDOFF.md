@@ -96,9 +96,9 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 | 단계 | 구현 내용 | 상태 |
 | --- | --- | --- |
 | Phase 0~2 | 1.0과 분리한 `app/` 계약·상태 머신, 테스트 환경, DB migration·repository 구현 | 완료, 2026-10-16 재확인(254 passed) |
-| Phase 3 | 수집 → 정제·중복 제거 → Evidence 저장과 실패 후 재개 | 네이버/다음/유튜브/구글, Streamlit에서 키워드 N개 fan-out까지 실제로 동작(5·7·11차). 커뮤니티/블로그·댓글은 미구현 |
+| Phase 3 | 수집 → 정제·중복 제거 → Evidence 저장과 실패 후 재개 | 네이버/다음/유튜브/구글, Streamlit에서 키워드 N개 fan-out까지 실제로 동작(5·7·11차). 유튜브 댓글도 수집됨(12차). 커뮤니티/블로그는 미구현 |
 | Phase 4 | Evidence → 검증된 Fact → Issue 확정과 출처 역추적 | 기록상 완료, Streamlit "이슈 확정 실행" 버튼으로 실제 실행 확인(9차). 공식 출처 정책 미결정 |
-| Phase 5 | canonical 문서 기준 언급량·채널·키워드·감성·비교기간 집계와 AnalyticsSnapshot | 기록상 완료, Streamlit "통계 집계 실행" 버튼으로 실제 실행 확인(9차) |
+| Phase 5 | canonical 문서 기준 언급량·채널·키워드·감성·비교기간 집계와 AnalyticsSnapshot | 기록상 완료, Streamlit "통계 집계 실행" 버튼으로 실제 실행 확인(9차). 댓글은 `comment_count`로 분리 집계(12차) |
 | Phase 6 | GPT/Claude 서술 초안, 근거·수치 검증, 초안·수정·승인 버전 저장, Streamlit 검수 UI | 출력 계약 결정·구현(8차), Gemini 어댑터 구현(8차), Streamlit 화면 1~5 동작(9차)로 초안 생성·저장·표시까지 됨; 사용자 수정·버전 비교·승인 UI는 아직 없음 |
 | Phase 7 | 승인본과 AnalyticsSnapshot에서 차트·보고서 조립, DOCX·Markdown·HWPX 출력 및 실제 HWPX 열림·배치 검증 | 미구현 |
 | Phase 8 | 프로젝트 실행·상태·재시도·승인본·산출물 조회를 위한 API/CLI와 운영 설정 | 미구현 |
@@ -107,10 +107,10 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 
 ## 정확한 다음 행동
 
-1. 커뮤니티(클리앙/디시/펨코/루리웹/더쿠)·블로그는 1.0 코드를 2.0 계약으로 포팅한다(유튜브·구글은 7·11차에서 이미 완료). `MultiQueryCollectionToEvidenceWorkflow`의 `CollectionRequest.collector`로 바로 꽂을 수 있는 구조다.
-2. 댓글 수집 컨벤션(`metadata["document_type"]="comment"`, `parent_document_id`)을 실제 collector에 구현한다.
-3. Visualization·Report의 시각 자산 버전/승인 저장 계약을 명시적으로 결정한다(Narrative 출력 계약은 8차에서 이미 결정·구현함 — 구현 계획 §2, §7 결정 목록 중 미해결: HWPX 자산 확보, Visualization/Report 계약, 1.0 수집기 포팅 범위, 공식 출처 정책). 이게 결정되면 "5. 서술 편집"의 비활성화된 "최종 승인" 버튼을 실제로 연결할 수 있다.
-4. 구글 결과의 channel 분류를 전부 `NEWS`로 단순화해둔 것(11차)을 URL/도메인 기반으로 정교화할지 결정한다(지금은 의도적 단순화일 뿐 결정 대상은 아니었음 — 필요성이 보이면 결정 목록에 추가).
+1. 커뮤니티(클리앙/디시/펨코/루리웹/더쿠)·블로그는 1.0 코드를 2.0 계약으로 포팅한다(유튜브·구글은 7·11차, 유튜브 댓글은 12차에서 이미 완료). `MultiQueryCollectionToEvidenceWorkflow`의 `CollectionRequest.collector`로 바로 꽂을 수 있는 구조다.
+2. Visualization·Report의 시각 자산 버전/승인 저장 계약을 명시적으로 결정한다(Narrative 출력 계약은 8차에서 이미 결정·구현함 — 구현 계획 §2, §7 결정 목록 중 미해결: HWPX 자산 확보, Visualization/Report 계약, 1.0 수집기 포팅 범위, 공식 출처 정책). 이게 결정되면 "5. 서술 편집"의 비활성화된 "최종 승인" 버튼을 실제로 연결할 수 있다.
+3. 구글 결과의 channel 분류를 전부 `NEWS`로 단순화해둔 것(11차)을 URL/도메인 기반으로 정교화할지 결정한다(지금은 의도적 단순화일 뿐 결정 대상은 아니었음 — 필요성이 보이면 결정 목록에 추가).
+4. 댓글이 Evidence→Fact→Issue 파이프라인에도 섞여 들어가는 걸 그대로 둘지 결정한다(12차에서 새로 생긴 미해결 질문 — 아래 "확정된 결정" 바로 다음 절 참고). 지금은 analytics 집계에서만 분리했고 Evidence/Fact 단계는 건드리지 않았다.
 5. 시각 자료 2종(채널 도넛, TOP10 카드)만 편집 UI에 연결 → HWPX 3쪽(표지/목차/요약) 시제품 순으로 1차 최소 단위를 넓힌다(구현 계획 §6).
 6. 별도 python-hwpx를 연결하고 7월 보고서의 대표 페이지 시제품을 실제 한컴에서 검증한다.
 
@@ -125,11 +125,14 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
   썼던 것은 이 repository를 놓친 부정확한 서술이었음).
   예(2026년 9월, 실행 예시로만 기록): 공공기관 충남 2차 이전·내포신도시 / 충남
   재정전략회의 / 인사청문특위 부적격판단 전격수용 / 삼성 디스플레이 67조 투자유치.
-- **댓글 포함.** 신규 필드 대신 기존 `RawDocument.metadata`에
-  `document_type`("article"/"comment")·`parent_document_id` 컨벤션으로 저장(감성
-  라벨을 `metadata["sentiment"]`에 저장한 기존 선례와 동일 패턴, 신규 schema
-  아님). analytics 집계는 article/comment를 분리한다. (아직 collector에 실제
-  구현 안 됨 — M1 대상.)
+- **댓글 포함 — 12차에서 유튜브 collector에 구현 완료.** 신규 필드 대신 기존
+  `RawDocument.metadata`에 `document_type`("article"/"comment")·
+  `parent_document_id` 컨벤션으로 저장(감성 라벨을 `metadata["sentiment"]`에
+  저장한 기존 선례와 동일 패턴, 신규 schema 아님). analytics 집계는
+  article/comment를 분리한다(`IssuesToAnalyticsWorkflow`가
+  `comment_count`/`comment_document_ids`로 따로 보고, `unique_documents` 등
+  본문 지표에는 안 섞음). naver/daum/google은 공식 댓글 API가 없어서(또는
+  스크래핑 없이는 접근 불가) 댓글 수집 대상이 아니다.
 - **LLM은 API 직접 연결, 키는 추후 제공.** CLI 구독이 아니라 API 호출로 확정.
   키가 없을 때 adapter는 기존 template 서비스로 자동 fallback해야 한다. provider를
   설정값으로 선택 가능하게 구현.
@@ -460,6 +463,70 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
   예외 없이 도는 것을 재확인했다.
 - `tests_v2`+`tests` **292 passed**(282 + Google collector 10). 실제 Google
   API 네트워크 호출은 하지 않았다.
+
+## 이번 작업과 검증 (2026-10-17, 12차: 댓글 수집)
+
+사용자가 11차 끝에 정리한 "정확한 다음 행동" 2번(댓글 수집 컨벤션 구현)을
+"댓글 수집 진행해줘"로 승인했다.
+
+- **어느 채널에 구현했는가:** 유튜브만. naver/daum/google 세 곳 모두 댓글에
+  접근할 수 있는 공식 API가 없다(naver 오픈 API는 뉴스 댓글 엔드포인트가
+  없고, kakao 웹 검색도 마찬가지, 구글 커스텀 서치는 애초에 댓글 개념이 없는
+  일반 웹 검색이다). 유튜브만 `commentThreads.list`/`comments.list`라는
+  공식·문서화된 API가 있어서 거기에만 구현했다 — 다른 채널 댓글은 스크래핑
+  없이는 못 하므로 범위에서 뺀 것이지 빠뜨린 게 아니다.
+- **`YouTubeCollector` 확장(`app/collectors/youtube.py`):** `search()`가
+  영상을 찾을 때마다 그 영상의 top-level 댓글도 `commentThreads.list`
+  (1유닛/영상)로 가져와 **댓글 하나하나를 영상과 똑같은 `SearchResult`**로
+  반환한다(URL에 `&lc={댓글ID}`를 붙여 구분, 상태 저장 없이 순수 URL
+  파싱만으로 동작). `fetch()`는 URL에 `&lc=`가 있으면 `comments.list`
+  (1유닛/댓글)로 그 댓글 하나만 다시 조회해서 `RawDocument`를 만든다 —
+  기존 article fetch 경로와 완전히 같은 패턴이라 `CollectionService`/
+  `MultiQueryCollectionToEvidenceWorkflow` 등 **다른 코드를 전혀 안
+  건드렸다**(댓글이 그냥 검색 결과 하나 더 늘어난 것처럼 기존 파이프라인을
+  그대로 통과함). 댓글이 비활성화된 영상은 `commentThreads.list` 호출이
+  실패해도 그 영상 자체의 수집은 막지 않고 댓글만 건너뛴다(1.0
+  `aiporg/youtube/collector.py`의 "로그만 남기고 계속" 패턴과 동일).
+  `RawDocument.metadata`에 `document_type`("article"/"comment")과 댓글의
+  경우 `parent_document_id`(영상의 document_id와 동일한 결정론적 공식으로
+  계산 — 영상을 먼저 fetch해야 할 필요 없음)를 넣는다. 기본값
+  `include_comments=True`, `max_comments_per_video=20`(생성자 인자로 조정
+  가능, 비용은 영상당 최대 21유닛 — `search.list` 100유닛에 비하면 작음).
+- **Analytics 분리(`app/workflows/issues_to_analytics.py`):** 댓글 컨벤션만
+  추가하고 analytics가 모르는 척하면 "본문 언급량"에 댓글이 섞여버려서
+  부정확해진다 — 그래서 `IssuesToAnalyticsWorkflow.run()`에서
+  `document_type == "comment"`인 문서를 걸러내 `AnalyticsService.build()`
+  에는 article만 넘기고, 댓글 수는 `comment_count`/`comment_document_ids`
+  로 스냅샷 metrics에 따로 추가했다. **`AnalyticsService` 자체는 한 줄도
+  안 고쳤다**(기존 254개+ 테스트가 보증하는 집계 로직을 그대로 두고, 필터링
+  과 결과 병합만 호출부에서 했다). Streamlit "4. 통계·이슈 검토"는 이미
+  `st.json(snapshot.metrics)`로 전체 metrics를 보여주고 있어서 추가 UI
+  코드 없이 `comment_count`가 자동으로 뜬다 — 캡션 한 줄만 추가해 뭘
+  의미하는지 설명했다.
+- **의도적으로 결정하지 않고 남겨둔 것:** 댓글이 Evidence/Fact/Issue
+  파이프라인에도 그대로 섞여 들어가는지는 **건드리지 않았다.** 기존
+  `MultiQueryCollectionToEvidenceWorkflow`/`EvidenceToIssuesWorkflow`는
+  `document_type`을 전혀 안 보고 모든 canonical 문서를 동일하게 취급하므로,
+  댓글도 Evidence가 되고 (댓글 문구가 조건에 맞으면) Fact 후보가 될 수
+  있다. "analytics 집계는 article/comment를 분리한다"는 기존 결정 문구에
+  딱 그것만 적혀 있어서 그 범위만 구현했다 — 댓글을 애초에 Evidence/Fact
+  대상에서 뺄지는 새로운 결정 사항으로 다음 행동 목록에 추가했다(임의로
+  결정하지 않음).
+- **실제로 끝까지 실행해서 검증함:** 가짜 유튜브 collector(영상 1개 +
+  댓글 1개)로 Streamlit 콘솔의 `_run_collection` → 실제 Issue 확정 →
+  Analytics 집계까지 돌려서, 댓글이 `unique_documents`에서는 빠지고
+  `comment_count=1`로만 잡히는 것을 DB에서 직접 확인했다(처음엔 테스트
+  fixture의 `published_at`을 프로젝트 조사 기간 밖으로 잘못 잡아서
+  `unique_documents=0`이 나왔는데, 이건 내 테스트 스크립트의 실수였고
+  고쳐서 재확인함 — 실제 구현 버그는 아니었다).
+- unit test 신규: 유튜브 collector 3개(댓글 포함 검색, 댓글 비활성 영상
+  건너뛰기, 댓글 fetch가 document_type/parent_document_id를 올바르게
+  채우는지) + analytics workflow 2개(댓글 분리·댓글 없을 때 metrics
+  그대로). 기존 유튜브 테스트 4개는 댓글 호출까지 포함하게 된 `search()`에
+  맞춰 `include_comments=False`로 범위를 좁히거나 새 `document_type` 필드를
+  기대값에 추가해서 고쳤다(동작이 바뀐 게 아니라 테스트가 몰랐던 새 동작을
+  반영한 것). `tests_v2`+`tests` **297 passed**(292 + 5). 실제 YouTube API
+  네트워크 호출은 하지 않았다.
 
 ## 기능 완료 시 커밋·푸시 규칙
 - 기능 단위의 구현과 필요한 테스트가 완료되면 `HANDOFF.md`를 최신 상태로 갱신한 뒤 해당 기능의 변경만 선별하여 커밋하고 원격 브랜치에 푸시한다.

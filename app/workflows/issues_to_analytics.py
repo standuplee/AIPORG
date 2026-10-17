@@ -2,6 +2,14 @@
 
 Use repositories sharing the caller's session_scope transaction so snapshot
 creation and state advancement commit or roll back together.
+
+Comments (``metadata["document_type"] == "comment"``, see
+``app/collectors/youtube.py``) are excluded from ``AnalyticsService.build()``'s
+article-oriented counts and reported separately (``comment_count``,
+``comment_document_ids`` in the resulting snapshot's metrics) -- the
+2026-10-17 decision that comment and article mentions need separate names and
+denominators (requirements doc §4.2), done here rather than inside
+``AnalyticsService`` so its already-tested counting logic is untouched.
 """
 
 from app.analytics.service import AnalyticsService
@@ -44,6 +52,14 @@ class IssuesToAnalyticsWorkflow:
         if project is None:
             raise ValueError("project does not exist")
         documents = self.document_repository.list_canonical(project_id)
+        articles = [
+            document for document in documents
+            if document.metadata.get("document_type") != "comment"
+        ]
+        comments = [
+            document for document in documents
+            if document.metadata.get("document_type") == "comment"
+        ]
         issues = self.issue_repository.list_by_project(project_id)
         facts = {}
         for fact_id in sorted({fact_id for issue in issues for fact_id in issue.fact_ids}, key=str):
@@ -54,12 +70,22 @@ class IssuesToAnalyticsWorkflow:
         snapshot = self.analytics_service.build(
             project_id,
             run,
-            documents,
+            articles,
             analysis_period=project.analysis_period,
             comparison_period=project.comparison_period,
             issues=issues,
             facts_by_id=facts,
         )
+        if comments:
+            snapshot = snapshot.model_copy(update={
+                "metrics": {
+                    **snapshot.metrics,
+                    "comment_count": len(comments),
+                    "comment_document_ids": sorted(
+                        str(document.document_id) for document in comments
+                    ),
+                },
+            })
         saved = self.analytics_repository.create(snapshot)
         self.project_repository.advance_workflow(project_id, WorkflowState.ANALYTICS_COMPLETED)
         return saved

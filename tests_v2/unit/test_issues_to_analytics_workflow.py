@@ -8,6 +8,7 @@ import pytest
 from app.analytics.service import AnalyticsService
 from app.core.enums import WorkflowState
 from app.core.state_machine import InvalidStateTransitionError
+from app.schemas.analytics import AnalyticsSnapshotSchema
 from app.schemas.common import VersionedRunSchema
 from app.workflows.issues_to_analytics import IssuesToAnalyticsWorkflow
 
@@ -80,6 +81,50 @@ def test_failure_does_not_advance_workflow(failure_stage):
     with pytest.raises(ValueError):
         workflow.run(project_id, run)
     workflow.project_repository.advance_workflow.assert_not_called()
+
+
+def test_comments_are_excluded_from_analytics_and_counted_separately():
+    workflow, project_id, run = setup_workflow()
+    article = SimpleNamespace(document_id=uuid4(), metadata={})
+    comment = SimpleNamespace(document_id=uuid4(), metadata={"document_type": "comment"})
+    workflow.document_repository.list_canonical.return_value = [article, comment]
+    workflow.analytics_service.build.return_value = AnalyticsSnapshotSchema(
+        project_id=project_id, run=run, metrics={"unique_documents": 1},
+    )
+    workflow.analytics_repository.create.side_effect = lambda snapshot: snapshot
+
+    result = workflow.run(project_id, run)
+
+    workflow.analytics_service.build.assert_called_once_with(
+        project_id, run, [article],
+        analysis_period=workflow.project_repository.get.return_value.analysis_period,
+        comparison_period=workflow.project_repository.get.return_value.comparison_period,
+        issues=[], facts_by_id={},
+    )
+    assert result.metrics["unique_documents"] == 1
+    assert result.metrics["comment_count"] == 1
+    assert result.metrics["comment_document_ids"] == [str(comment.document_id)]
+
+
+def test_no_comments_leaves_metrics_untouched():
+    workflow, project_id, run = setup_workflow()
+    article = SimpleNamespace(document_id=uuid4(), metadata={})
+    workflow.document_repository.list_canonical.return_value = [article]
+    workflow.analytics_repository.create.side_effect = lambda snapshot: snapshot
+
+    workflow.run(project_id, run)
+
+    workflow.analytics_service.build.assert_called_once_with(
+        project_id, run, [article],
+        analysis_period=workflow.project_repository.get.return_value.analysis_period,
+        comparison_period=workflow.project_repository.get.return_value.comparison_period,
+        issues=[], facts_by_id={},
+    )
+    # build()'s own return value is persisted as-is -- no model_copy when there
+    # are no comments to report.
+    workflow.analytics_repository.create.assert_called_once_with(
+        workflow.analytics_service.build.return_value
+    )
 
 
 def test_shared_fact_is_loaded_once_with_project_scope():

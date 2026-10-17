@@ -6,7 +6,13 @@ import pytest
 
 from app.collectors.errors import CollectorError
 from app.collectors.transport import HttpResponse
-from app.collectors.youtube import YOUTUBE_SEARCH_URL, YOUTUBE_VIDEOS_URL, YouTubeCollector
+from app.collectors.youtube import (
+    YOUTUBE_COMMENT_THREADS_URL,
+    YOUTUBE_COMMENTS_URL,
+    YOUTUBE_SEARCH_URL,
+    YOUTUBE_VIDEOS_URL,
+    YouTubeCollector,
+)
 from app.core.enums import ChannelType
 from app.schemas.document import SearchResult
 from app.schemas.query import SearchQuery
@@ -54,7 +60,7 @@ def test_search_sends_key_region_and_relevance_language_and_parses_items() -> No
             )
         ]
     )
-    collector = YouTubeCollector(api_key="yt-key", transport=transport)
+    collector = YouTubeCollector(api_key="yt-key", transport=transport, include_comments=False)
 
     results = asyncio.run(collector.search(search_query()))
 
@@ -88,7 +94,9 @@ def test_search_follows_next_page_token_up_to_max_pages() -> None:
             HttpResponse(status_code=200, headers={}, body=second_page),
         ]
     )
-    collector = YouTubeCollector(api_key="yt-key", transport=transport, max_pages=2)
+    collector = YouTubeCollector(
+        api_key="yt-key", transport=transport, max_pages=2, include_comments=False
+    )
 
     results = asyncio.run(collector.search(search_query()))
 
@@ -102,7 +110,9 @@ def test_search_follows_next_page_token_up_to_max_pages() -> None:
 def test_search_stops_at_max_pages_even_with_a_next_page_token() -> None:
     page = '{"items": [' + _search_item("v1", "영상1") + '], "nextPageToken": "more"}'
     transport = MockTransport([HttpResponse(status_code=200, headers={}, body=page)])
-    collector = YouTubeCollector(api_key="yt-key", transport=transport, max_pages=1)
+    collector = YouTubeCollector(
+        api_key="yt-key", transport=transport, max_pages=1, include_comments=False
+    )
 
     results = asyncio.run(collector.search(search_query()))
 
@@ -136,7 +146,12 @@ def test_fetch_combines_title_and_description_and_captures_stats() -> None:
     assert document.body == "박수현 충남 간담회\n\n충남 간담회 설명"
     assert document.platform == "youtube"
     assert isinstance(document.document_id, UUID)
-    assert document.metadata == {"view_count": 1200, "like_count": 34, "comment_count": 5}
+    assert document.metadata == {
+        "document_type": "article",
+        "view_count": 1200,
+        "like_count": 34,
+        "comment_count": 5,
+    }
     assert transport.calls[0]["url"] == YOUTUBE_VIDEOS_URL
     assert transport.calls[0]["params"]["id"] == "abc123"
 
@@ -189,3 +204,85 @@ def test_search_raises_retryable_error_on_server_failure() -> None:
 
     assert raised.value.code == "http_status"
     assert raised.value.retryable is True
+
+
+def _comment_thread_item(comment_id: str, text: str, published: str) -> str:
+    return (
+        '{"snippet": {"topLevelComment": {"id": "%s", "snippet": '
+        '{"textDisplay": "%s", "publishedAt": "%s"}}}}'
+        % (comment_id, text, published)
+    )
+
+
+def test_search_includes_top_level_comments_as_search_results() -> None:
+    video_page = '{"items": [' + _search_item("abc123", "영상 제목") + "]}"
+    comments_page = (
+        '{"items": [' + _comment_thread_item("c1", "좋은 정책이네요", "2026-07-21T00:00:00Z") + "]}"
+    )
+    transport = MockTransport(
+        [
+            HttpResponse(status_code=200, headers={}, body=video_page),
+            HttpResponse(status_code=200, headers={}, body=comments_page),
+        ]
+    )
+    collector = YouTubeCollector(api_key="yt-key", transport=transport)
+
+    results = asyncio.run(collector.search(search_query()))
+
+    assert [r.url for r in results] == [
+        "https://www.youtube.com/watch?v=abc123",
+        "https://www.youtube.com/watch?v=abc123&lc=c1",
+    ]
+    comment_result = results[1]
+    assert comment_result.title == "좋은 정책이네요"
+    assert comment_result.channel == ChannelType.VIDEO
+    comment_call = transport.calls[1]
+    assert comment_call["url"] == YOUTUBE_COMMENT_THREADS_URL
+    assert comment_call["params"]["videoId"] == "abc123"
+
+
+def test_search_skips_comments_for_a_video_with_comments_disabled() -> None:
+    video_page = '{"items": [' + _search_item("abc123", "영상 제목") + "]}"
+    transport = MockTransport(
+        [
+            HttpResponse(status_code=200, headers={}, body=video_page),
+            HttpResponse(status_code=403, headers={}, body=""),
+        ]
+    )
+    collector = YouTubeCollector(api_key="yt-key", transport=transport)
+
+    results = asyncio.run(collector.search(search_query()))
+
+    # The video itself is still returned even though its comments call failed.
+    assert [r.url for r in results] == ["https://www.youtube.com/watch?v=abc123"]
+
+
+def test_fetch_comment_tags_document_type_and_parent_document_id() -> None:
+    from uuid import NAMESPACE_URL, uuid5
+
+    response = HttpResponse(
+        status_code=200,
+        headers={},
+        body='{"items": [{"snippet": {"textDisplay": "좋은 정책이네요", "likeCount": 3}}]}',
+    )
+    transport = MockTransport([response])
+    comment_result = SearchResult(
+        source="youtube",
+        channel=ChannelType.VIDEO,
+        title="좋은 정책이네요",
+        url="https://www.youtube.com/watch?v=abc123&lc=c1",
+        published_at=datetime(2026, 7, 21, tzinfo=timezone.utc),
+        query="박수현 충남",
+    )
+    collector = YouTubeCollector(api_key="yt-key", transport=transport)
+
+    document = asyncio.run(collector.fetch(comment_result))
+
+    assert document.body == "좋은 정책이네요"
+    assert document.metadata["document_type"] == "comment"
+    assert document.metadata["parent_document_id"] == str(
+        uuid5(NAMESPACE_URL, "https://www.youtube.com/watch?v=abc123")
+    )
+    assert document.metadata["like_count"] == 3
+    assert transport.calls[0]["url"] == YOUTUBE_COMMENTS_URL
+    assert transport.calls[0]["params"]["id"] == "c1"
