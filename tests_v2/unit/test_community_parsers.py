@@ -7,6 +7,7 @@ from app.collectors.community.parsers import (
     GenericParser,
     RuliwebParser,
     TheqooParser,
+    extract_fmkorea_board_post_ids,
     get_parser,
 )
 
@@ -126,3 +127,39 @@ def test_generic_parser_drops_when_no_date_meta_present() -> None:
 
 def test_get_parser_returns_generic_for_unknown_site() -> None:
     assert isinstance(get_parser("unknown-site"), GenericParser)
+
+
+def test_extract_fmkorea_board_post_ids_reads_prefixed_links_for_best_boards() -> None:
+    # Confirmed live: /best and /best2 link their own posts with a
+    # board-prefixed href.
+    html = """
+    <html><body>
+      <a href="/best/10454645844">글 제목 1</a>
+      <a href="/best/10454974179?s=1">글 제목 2</a>
+      <a href="/other/9999">다른 게시판 글(무시되어야 함)</a>
+      <a href="/login">로그인(무시)</a>
+    </body></html>
+    """
+    ids = extract_fmkorea_board_post_ids(html, "best")
+    assert ids == ["10454645844", "10454974179"]
+
+
+def test_extract_fmkorea_board_post_ids_reads_bare_links_for_humor_board_only() -> None:
+    # Confirmed live: /humor's own listing links posts with a bare numeric
+    # href (no "/humor/" prefix), unlike /best and /best2.
+    html = """
+    <html><body>
+      <a href="/10358221471">글 제목</a>
+      <a href="/9876543210?s=2">글 제목 2</a>
+      <a href="/1">페이지네이션(5자리 미만, 무시)</a>
+    </body></html>
+    """
+    ids = extract_fmkorea_board_post_ids(html, "humor")
+    assert ids == ["10358221471", "9876543210"]
+
+
+def test_extract_fmkorea_board_post_ids_does_not_accept_bare_links_for_best_board() -> None:
+    # A bare numeric link on /best's own listing is not evidence the post
+    # belongs to /best -- /best links its own posts with the prefix.
+    html = '<html><body><a href="/10358221471">제목</a></body></html>'
+    assert extract_fmkorea_board_post_ids(html, "best") == []

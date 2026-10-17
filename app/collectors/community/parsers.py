@@ -317,10 +317,65 @@ def get_parser(site: str) -> SiteParser:
 # both kinds for every one of these five sites, and a listing page never
 # parses as a post (no title/body/date to extract), so filtering here saves
 # requests that were never going to produce a document.
+#
+# fmkorea's pattern expects the board-prefixed form
+# (/best|/best2|/humor/<id>), not the bare /<id> fmkorea.com also serves --
+# see FMKOREA_BOARDS and extract_fmkorea_board_post_ids() below for why.
 POST_URL_PATTERNS: dict[str, re.Pattern[str]] = {
     "dcinside": re.compile(r"/board/view/"),
     "clien": re.compile(r"/service/board/[^/?]+/\d+"),
-    "fmkorea": re.compile(r"^/\d+(?:[/?]|$)"),
+    "fmkorea": re.compile(r"^/(?:best2?|humor)/\d+(?:[/?]|$)"),
     "ruliweb": re.compile(r"/read/\d+"),
     "theqoo": re.compile(r"/\d+(?:[/?]|$)"),
 }
+
+
+# fmkorea's robots.txt (confirmed live, 2026-10-17) denies every path to
+# unnamed/generic bots except "/", "/best", "/best2", and "/humor" -- an
+# individual post's canonical URL is a bare numeric path (e.g.
+# "fmkorea.com/1234567890") that matches none of those, so it is always
+# disallowed regardless of which board the post is actually in. The *same*
+# post is also reachable at "fmkorea.com/<board>/<id>" (confirmed live: both
+# forms return identical content), and that form IS allowed when <board> is
+# one of these three.
+#
+# This only legitimately applies to a post that is genuinely linked from
+# that board's own listing page right now -- stamping an arbitrary
+# Naver-discovered id with "/best/" to make robots.txt's pattern match,
+# regardless of whether the post actually is a /best post, would satisfy the
+# literal rule while defeating its obvious intent (the operator scoped
+# access to these boards' content, not to every post on the site). So
+# membership is never assumed: collector.py fetches each board's own
+# listing page and only treats an id as belonging to a board if this
+# extractor actually found it linked there.
+FMKOREA_BOARDS = ("best", "best2", "humor")
+
+
+def extract_fmkorea_board_post_ids(html: str, board: str) -> list[str]:
+    """Post ids linked from one fmkorea board listing page, in page order.
+
+    best/best2 link posts with a board-prefixed href ("/best/<id>",
+    confirmed live); humor links posts with a bare numeric href ("/<id>")
+    even on its own listing page, so a bare numeric link found *on this
+    specific listing page* is accepted only for board == "humor".
+    """
+    soup = _soup(html)
+    ids: list[str] = []
+    seen: set[str] = set()
+    prefix = f"/{board}/"
+    for anchor in soup.find_all("a", href=True):
+        href = anchor["href"]
+        path = href.split("?", 1)[0]
+        if board in ("best", "best2"):
+            if not path.startswith(prefix):
+                continue
+            candidate = path[len(prefix):].rstrip("/")
+        else:
+            candidate = path.strip("/")
+        # A 5+ digit numeric id filters out pagination links ("?page=2"
+        # never reaches here anyway), nav anchors, and other short numeric
+        # hrefs that are not post ids.
+        if candidate.isdigit() and len(candidate) >= 5 and candidate not in seen:
+            seen.add(candidate)
+            ids.append(candidate)
+    return ids

@@ -275,3 +275,112 @@ def test_constructor_requires_credentials() -> None:
         CommunityCollector(client_id="", client_secret="secret")
     with pytest.raises(ValueError):
         CommunityCollector(client_id="id", client_secret="")
+
+
+def _fmkorea_policy(**overrides) -> SitePolicy:
+    return _policy(
+        name="fmkorea",
+        domains=("fmkorea.com", "www.fmkorea.com"),
+        search_hints=("펨코",),
+        **overrides,
+    )
+
+
+def test_fmkorea_resolves_a_bare_post_id_to_its_verified_board_prefix() -> None:
+    board_html = {
+        "best": '<a href="/best/99999999">a</a>',
+        "best2": "<html></html>",
+        "humor": '<a href="/10358221471">humor post</a>',
+    }
+    transport = MockTransport(
+        [
+            _webkr_response([("https://www.fmkorea.com/10358221471", "snippet")]),
+            _robots_allow_all(),  # robots.txt, cached for the whole fmkorea.com domain
+            HttpResponse(status_code=200, headers={}, body=board_html["best"]),
+            HttpResponse(status_code=200, headers={}, body=board_html["best2"]),
+            HttpResponse(status_code=200, headers={}, body=board_html["humor"]),
+            HttpResponse(status_code=200, headers={}, body=_post_html(title="humor post")),
+        ]
+    )
+    collector = CommunityCollector(
+        client_id="id", client_secret="secret", transport=transport, policies={"fmkorea": _fmkorea_policy()}
+    )
+
+    results = asyncio.run(collector.search(search_query()))
+
+    assert len(results) == 1
+    assert results[0].url == "https://www.fmkorea.com/humor/10358221471"
+    assert results[0].source == "fmkorea"
+    # discovery(1) + robots.txt(1) + 3 board listings + the resolved post fetch = 6
+    assert len(transport.calls) == 6
+
+
+def test_fmkorea_drops_a_post_id_not_found_on_any_allowed_board_listing() -> None:
+    transport = MockTransport(
+        [
+            _webkr_response([("https://www.fmkorea.com/99999999999", "snippet")]),
+            _robots_allow_all(),
+            HttpResponse(status_code=200, headers={}, body="<html></html>"),  # best: no match
+            HttpResponse(status_code=200, headers={}, body="<html></html>"),  # best2: no match
+            HttpResponse(status_code=200, headers={}, body="<html></html>"),  # humor: no match
+        ]
+    )
+    collector = CommunityCollector(
+        client_id="id", client_secret="secret", transport=transport, policies={"fmkorea": _fmkorea_policy()}
+    )
+
+    results = asyncio.run(collector.search(search_query()))
+
+    assert results == []
+    # No post fetch should have been attempted for an unverified id.
+    assert len(transport.calls) == 5
+
+
+def test_fmkorea_ignores_whatever_prefix_naver_already_indexed_and_reverifies() -> None:
+    # Even if Naver's own index already shows a "/best/<id>" style URL, the
+    # id is re-resolved against the live board listings rather than trusted
+    # -- here it's only genuinely found under /humor.
+    transport = MockTransport(
+        [
+            _webkr_response([("https://www.fmkorea.com/best/10358221471", "snippet")]),
+            _robots_allow_all(),
+            HttpResponse(status_code=200, headers={}, body="<html></html>"),  # best: no match
+            HttpResponse(status_code=200, headers={}, body="<html></html>"),  # best2: no match
+            HttpResponse(status_code=200, headers={}, body='<a href="/10358221471">x</a>'),  # humor: match
+            HttpResponse(status_code=200, headers={}, body=_post_html()),
+        ]
+    )
+    collector = CommunityCollector(
+        client_id="id", client_secret="secret", transport=transport, policies={"fmkorea": _fmkorea_policy()}
+    )
+
+    results = asyncio.run(collector.search(search_query()))
+
+    assert len(results) == 1
+    assert results[0].url == "https://www.fmkorea.com/humor/10358221471"
+
+
+def test_fmkorea_board_membership_is_cached_across_multiple_search_calls() -> None:
+    transport = MockTransport(
+        [
+            _webkr_response([("https://www.fmkorea.com/10358221471", "snippet")]),
+            _robots_allow_all(),
+            HttpResponse(status_code=200, headers={}, body="<html></html>"),
+            HttpResponse(status_code=200, headers={}, body="<html></html>"),
+            HttpResponse(status_code=200, headers={}, body='<a href="/10358221471">x</a>'),
+            HttpResponse(status_code=200, headers={}, body=_post_html()),
+            # Second search() call for a different keyword: no new board
+            # listing or robots.txt fetches, only discovery + the post fetch.
+            _webkr_response([("https://www.fmkorea.com/10358221471", "snippet")]),
+            HttpResponse(status_code=200, headers={}, body=_post_html()),
+        ]
+    )
+    collector = CommunityCollector(
+        client_id="id", client_secret="secret", transport=transport, policies={"fmkorea": _fmkorea_policy()}
+    )
+
+    asyncio.run(collector.search(search_query()))
+    calls_after_first_search = len(transport.calls)
+    asyncio.run(collector.search(SearchQuery(query="다른 키워드", channels=[ChannelType.COMMUNITY])))
+
+    assert len(transport.calls) == calls_after_first_search + 2

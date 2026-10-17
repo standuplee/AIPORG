@@ -26,6 +26,30 @@ def test_robots_gate_allows_when_robots_txt_permits() -> None:
     assert allowed is True
 
 
+def test_robots_gate_applies_longest_match_not_file_order() -> None:
+    # Regression test for a real bug found live against fmkorea.com's actual
+    # robots.txt (2026-10-17): it lists "Disallow: /" *before* more specific
+    # "Allow: /best" / "Allow: /humor" lines in the same User-agent: * group.
+    # RFC 9309 says the longest matching path wins regardless of order, so
+    # /humor should be allowed -- stdlib's urllib.robotparser instead applied
+    # the first matching rule in file order and denied everything, including
+    # paths the site explicitly allows. This is why robots.py uses protego.
+    transport = MockTransport(
+        [
+            HttpResponse(
+                status_code=200,
+                headers={},
+                body="User-agent: *\nDisallow: /\nAllow: /$\nAllow: /best\nAllow: /humor",
+            )
+        ]
+    )
+    gate = RobotsGate(transport, user_agent="TestBot")
+
+    assert asyncio.run(gate.allowed("https://example.com/humor/123")) is True
+    assert asyncio.run(gate.allowed("https://example.com/best/456")) is True
+    assert asyncio.run(gate.allowed("https://example.com/other/789")) is False
+
+
 def test_robots_gate_denies_disallowed_paths() -> None:
     transport = MockTransport(
         [HttpResponse(status_code=200, headers={}, body="User-agent: *\nDisallow: /")]

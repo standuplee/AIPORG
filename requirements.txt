@@ -13,6 +13,12 @@ requests==2.34.2
 feedparser==6.0.12
 beautifulsoup4==4.15.0
 lxml==6.1.1
+# robots.txt 준수(RFC 9309 longest-match 규칙). 표준 라이브러리
+# urllib.robotparser는 "Disallow: / 다음에 더 구체적인 Allow: /path"
+# 순서(실제 운영 사이트에서 흔함, 예: fmkorea.com/robots.txt)를
+# 최장 일치가 아니라 파일 순서로 잘못 판정하는 버그가 있어 교체함
+# (app/collectors/community/robots.py 에서 라이브로 확인·정정).
+protego==0.7.0
 
 # 커뮤니티 어댑터 / YouTube 내부 API
 fastapi>=0.110

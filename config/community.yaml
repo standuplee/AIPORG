@@ -26,7 +26,7 @@ defaults:
 
 sites:
   dcinside:
-    enabled: false
+    enabled: true   # 2026-10-17 운영자 결정: robots.txt 라이브 검토 완료, 5개 사이트 모두 사용
     domains: [dcinside.com, gall.dcinside.com, m.dcinside.com]
     search_hints: [디시인사이드, 디시]
     min_interval_sec: 4.0
@@ -38,25 +38,37 @@ sites:
       - "/caricature"
 
   clien:
-    enabled: false
+    enabled: true   # 2026-10-17 운영자 결정: robots.txt 라이브 검토 완료, 5개 사이트 모두 사용
     domains: [clien.net, www.clien.net, m.clien.net]
     search_hints: [클리앙]
     exclude_patterns: ["/member", "login", "/mypage"]
 
+  # 2026-10-17: 라이브로 robots.txt를 읽어보니 이름이 등록 안 된 일반 봇에게는
+  # "/", "/best", "/best2", "/humor" 만 허용하고 개별 게시글 경로(바로
+  # "/<번호>" 형태)는 전부 Disallow다. 운영자 결정: 이 세 게시판으로 범위를
+  # 좁혀서 사용(app/collectors/community/collector.py의
+  # _fmkorea_board_membership이 이 세 게시판 목록 페이지를 직접 가져와
+  # "실제로 그 게시판에 걸린 글"만 "/<게시판>/<번호>" 형태로 수집하고,
+  # 그 외 발견된 글은 버린다 — 임의로 접두사만 붙여서 우회하지 않음).
+  # 별도로, 이 사이트는 자체 봇 차단 시스템("에펨코리아 보안 시스템")이
+  # 있어 짧은 시간에 요청이 몰리면 전체 차단당하는 것을 라이브로 확인했다
+  # (robots.txt 준수와는 별개 문제) — min_interval_sec을 기본값보다 더
+  # 넉넉하게 잡아 더 보수적으로 접근한다.
   fmkorea:
-    enabled: false
+    enabled: true   # 2026-10-17 운영자 결정: /, /best, /best2, /humor 범위로 한정해 사용
     domains: [fmkorea.com, www.fmkorea.com, m.fmkorea.com]
     search_hints: [에펨코리아, 펨코]
+    min_interval_sec: 6.0
     exclude_patterns: ["/index.php?mid=member", "login", "/point"]
 
   theqoo:
-    enabled: false
+    enabled: true   # 2026-10-17 운영자 결정: robots.txt 라이브 검토 완료, 5개 사이트 모두 사용
     domains: [theqoo.net, www.theqoo.net, m.theqoo.net]
     search_hints: [더쿠]
     exclude_patterns: ["/member", "login"]
 
   ruliweb:
-    enabled: false
+    enabled: true   # 2026-10-17 운영자 결정: robots.txt 라이브 검토 완료, 5개 사이트 모두 사용
     domains: [ruliweb.com, bbs.ruliweb.com, m.ruliweb.com]
     search_hints: [루리웹]
     exclude_patterns: ["/member", "login", "/user_info"]

@@ -165,13 +165,14 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
    gemini-2.0-flash)
 4. 1.0 블로그 수집기 "포팅" vs "재작성" 여부와 범위(유튜브는 7차, 커뮤니티는
    14차에서 이미 포팅함)
-5. **커뮤니티 5개 사이트 중 어느 곳을 실제로 활성화할지.** 코드는 14차에서
-   끝났지만 `config/community.yaml`에서 사이트별로 운영자가 robots.txt·
-   이용약관을 검토한 뒤 `enabled: true`로 켜야 한다. 참고로 fmkorea는
-   라이브로 robots.txt를 직접 읽어보니 일반(이름이 등록 안 된) 봇에게
-   `/`·`/best`·`/best2`·`/humor`만 허용하고 개별 게시글 경로는 전부
-   `Disallow`라, 지금 이 설계(robots.txt 준수)로는 켜더라도 실제 수집은
-   0건으로 끝난다 — 활성화 여부를 결정하기 전에 이 사실을 알아야 한다.
+5. ~~커뮤니티 5개 사이트 중 어느 곳을 실제로 활성화할지~~ — **결정됨
+   (2026-10-17, 15차): 5개 전부 활성화.** `config/community.yaml`에서
+   사용자가 직접 결정. fmkorea는 robots.txt가 허용하는
+   `/`·`/best`·`/best2`·`/humor` 범위로만 수집 대상을 제한(아래 15차
+   기록 참고) — 범위 밖 글은 수집하지 않는다. fmkorea의 자체 봇 차단
+   시스템 때문에 `min_interval_sec`을 다른 사이트보다 보수적으로 잡아둔
+   상태라, 실제 운영 중 그래도 차단당하는지는 다음에 fmkorea에 접근
+   가능해지면 확인이 필요하다(15차 "검증 못 한 부분" 참고).
 
 ## 이번 작업과 검증 (2026-10-16, 5차: 수집 정확도 + 파이프라인 연결)
 
@@ -751,6 +752,118 @@ rate limit·5개 사이트 파서까지 갖춘 완성도 있는 구현이 있지
   키워드 (2개): 키워드1, 키워드2"가 정확히 렌더링되는 것을 직접
   확인했다. 코드 변경은 UI 글루 코드뿐이라 신규 unit test는 추가하지
   않았다(이전 라운드들과 같은 이유).
+
+## 이번 작업과 검증 (2026-10-17, 15차: robots.txt 버그 수정 + fmkorea 범위 제한 + 5개 사이트 전부 활성화)
+
+사용자가 14차 보고 후 세 가지를 요청: (1) 네이버 대신 구글 웹검색을 쓰는 게
+낫지 않냐는 질문(강제 아님), (2) "5개 사이트 모두 사용할거야", (3) "fmkorea는
+/, /best, /best2, /humor이거 허용하는 범위에서는 크롤링해줘".
+
+### 1) Naver vs Google 웹검색 — Naver 유지 권장, 변경 안 함
+
+- Google Custom Search JSON API는 무료 한도가 **하루 100쿼리**뿐이고, 이미
+  `GoogleSearchCollector`(11차)가 뉴스/일반 검색에 같은 할당량을 쓰고
+  있다. 커뮤니티 발견만으로도 키워드 4개 × 5개 사이트 × 힌트 2개 = 40쿼리라
+  Google 전체 할당량의 거의 절반을 커뮤니티 발견 하나에 써버린다.
+- Naver 웹문서 검색 API(`webkr.json`)는 뉴스 검색 API와 별도 할당량이고
+  한도가 훨씬 넉넉하다(이미 네이버 뉴스/댓글에 쓰는 것과 같은 키를
+  재사용). 이번 세션에서 실제로 54건의 진짜 게시글을 정확히 찾아내는 것도
+  라이브로 검증됨(14차).
+- 결론: 바꿀 이유보다 안 바꿀 이유(할당량 충돌)가 커서 Naver를 유지했다.
+  사용자도 "상관없으면 말고"라고 해서 강제 요청은 아니었음.
+
+### 2) robots.txt 판정 라이브러리 교체 — 표준 라이브러리의 실제 버그 발견·수정
+
+fmkorea 범위 제한을 구현하려고 `fmkorea.com/robots.txt`를 라이브로
+`RobotsGate`에 그대로 돌려봤는데, `/`, `/best`, `/best2`, `/humor`처럼
+robots.txt가 명시적으로 허용한 경로까지 전부 `False`(차단)로 나왔다.
+
+- **원인(라이브로 재현·확인):** 표준 라이브러리 `urllib.robotparser`는
+  RFC 9309가 요구하는 "가장 길게 일치하는 규칙이 이긴다"가 아니라 **파일에
+  적힌 순서대로 첫 번째로 매칭되는 규칙을 적용**한다. fmkorea의
+  robots.txt는 `User-agent: *` 블록 안에 `Disallow: /`를 먼저 쓰고 그 뒤에
+  더 구체적인 `Allow: /best`/`Allow: /humor`를 쓰는, 실제 운영 사이트에서
+  흔한 순서다 — 이 순서에서 `urllib.robotparser`는 앞의 `Disallow: /`만
+  보고 뒤의 `Allow`는 아예 확인하지 않아, **robots.txt가 명시적으로 허용한
+  경로까지 전부 차단 판정**하는 버그가 있다. 최소 재현 케이스로 직접 확인:
+  `User-agent: *\nDisallow: /\nAllow: /humor`를 주면 `/humor`도
+  `can_fetch()`가 `False`를 반환한다.
+- **수정:** `app/collectors/community/robots.py`가 `urllib.robotparser`
+  대신 `protego`(Scrapy가 쓰는 RFC 9309 준수 라이브러리, `requirements.txt`
+  에 `protego==0.7.0` 추가)를 쓰도록 교체했다. 같은 fmkorea robots.txt로
+  재검증하니 `/`, `/best`, `/best2`, `/humor`는 `True`, 개별 게시글의 맨
+  URL(`/1234567890`)은 여전히 올바르게 `False`로 나왔다. 기존 4개 사이트
+  (clien/dcinside/theqoo/ruliweb)의 실제 robots.txt로도 재검증해 동작이
+  바뀌지 않음을 확인(회귀 없음 — dcinside의 "47"/"cat"/"dog" 등 명시적으로
+  차단된 바쁜 갤러리는 여전히 `False`, 그 외 갤러리는 여전히 `True`).
+  **이 버그는 fmkorea에만 해당하는 게 아니라 "Disallow: / 다음에 구체적인
+  Allow"를 쓰는 어떤 사이트에도 영향을 주는 일반적인 문제였다** — 커뮤니티
+  수집기 전체의 robots.txt 판정 정확성에 관한 버그 수정이지 fmkorea
+  전용 임시방편이 아니다.
+- unit test 신규 1개: `urllib.robotparser`였다면 실패했을 정확한 재현
+  케이스(파일 순서상 먼저 나오는 `Disallow: /`, 뒤에 더 구체적인
+  `Allow: /humor`/`Allow: /best`)를 회귀 테스트로 추가.
+
+### 3) fmkorea를 robots.txt가 허용하는 범위(/, /best, /best2, /humor)로 제한
+
+- **왜 "접두사만 붙이기"로는 안 되는가:** fmkorea 개별 게시글은
+  `fmkorea.com/<번호>`(접두사 없음)와 `fmkorea.com/<게시판>/<번호>`
+  둘 다로 같은 내용에 접근되는 걸 라이브로 확인했다(같은 `og:title`).
+  그렇다고 Naver 검색으로 찾은 아무 게시글 ID에나 `/best/`를 붙여서
+  robots.txt의 문자열 매칭만 통과시키는 건, 운영자가 robots.txt로 표현한
+  **의도**(베스트/베스트2/유머 게시판의 글만 허용)를 기술적으로는 지키는
+  척하면서 실제로는 어기는 것이다 — 이렇게 구현하지 않았다.
+- **실제 구현(`app/collectors/community/collector.py`,
+  `_resolve_fmkorea_url`/`_fmkorea_board_membership`):** 수집기 인스턴스당
+  한 번, `/best`·`/best2`·`/humor` 게시판 목록 페이지 3개를 실제로
+  가져와서 "그 페이지에 실제로 걸린 글 ID"만 신뢰할 수 있는 멤버십으로
+  기록한다(`app/collectors/community/parsers.py`의
+  `extract_fmkorea_board_post_ids` — best/best2는 게시판 접두사가 붙은
+  링크로, humor는 접두사 없는 링크로 올라오는 걸 라이브로 확인해서 각각
+  다르게 파싱). Naver 검색으로 찾은 fmkorea 후보는 (이미 접두사가 붙어
+  있더라도 무시하고) 글 번호만 다시 뽑아서 이 멤버십 맵에 있는지 확인하고,
+  있으면 검증된 게시판 접두사로 URL을 다시 만들어 그걸로만 robots
+  검사·수집을 진행한다. 멤버십에 없는 글은 버린다 — 즉 **베스트/베스트2/
+  유머에 실제로 걸린 글만, 키워드 관련성은 Naver 검색으로, 수집 허용
+  범위는 robots.txt가 실제로 허용한 경로로 각각 독립적으로 검증**한다.
+  목록 페이지 3개도 `_robots_gates`/rate limiter를 그대로 통과시키고(다른
+  요청과 동일하게 예산을 쓴다), 한 번 만든 멤버십은 같은 인스턴스의 이후
+  `search()` 호출(다른 키워드)에서도 재사용해 매번 다시 가져오지 않는다.
+  `POST_URL_PATTERNS["fmkorea"]`도 기존 맨 URL 패턴에서
+  `^/(?:best2?|humor)/\d+` 패턴으로 바꿨다(이제 위 재작성 단계를 거친
+  뒤에만 이 패턴과 비교되므로).
+- **라이브로 확인한 추가 사실, 구현에 반영:** fmkorea는 robots.txt와
+  별개로 **자체 봇 차단 시스템("에펨코리아 보안 시스템")**이 있어, 이번
+  작업 중 수동으로 테스트하다가(약 10초 간격 안에 여러 요청) 실제로
+  IP가 차단당하는 것을 직접 겪었다(HTTP 430, "에펨코리아 보안 시스템"
+  페이지 응답). 우회를 시도하지 않고 테스트를 즉시 중단했다 — 이 세션
+  끝까지도 해당 IP가 fmkorea에 재접근 가능한지 재확인하지 못했다(아래
+  "검증 못 한 부분" 참고). `config/community.yaml`의 fmkorea
+  `min_interval_sec`을 기본값(3.0)보다 보수적인 6.0으로 올려 실제 운영
+  중 같은 문제가 생길 가능성을 낮췄다 — 그래도 재발을 완전히 막는다는
+  보장은 아니다.
+- **검증 못 한 부분(투명하게 기록):** fmkorea의 게시판 목록 파싱
+  (`extract_fmkorea_board_post_ids`)은 IP 차단 전에 실제로 가져온
+  `/best`·`/best2` 페이지로 라이브 검증했지만, `/humor` 페이지는 셀렉터
+  구조까지 라이브로 들여다보기 전에 차단당해서 **"bare numeric href가
+  실제 게시글 링크 구조와 일치한다"는 가정은 차단 전 성공했던 한 번의
+  관찰에만 근거**한다(unit test는 이 가정을 고정해서 검증하지만, 실제
+  `/humor` 페이지에 그 가정과 다른 구조가 섞여 있을 가능성은 남아있다).
+  `CommunityCollector(..., policies=load_policies())`로 실제
+  `config/community.yaml`(fmkorea `enabled: true` 포함)을 써서 전체
+  `search()`를 엔드투엔드로 돌리는 라이브 검증은 이번엔 못 했다 — 다음에
+  fmkorea에 다시 접근 가능해지면 먼저 해야 할 일로 남긴다.
+- `config/community.yaml`: 사용자 요청대로 **5개 사이트 전부
+  `enabled: true`**로 바꿨다(각 사이트 robots.txt를 이번 세션에서 라이브로
+  검토한 뒤의 운영자 결정, 날짜와 함께 주석으로 기록). 1.0과 공유하는
+  파일이라 1.0 쪽 커뮤니티 어댑터를 쓰면 같은 설정이 그대로 적용된다 —
+  의도된 동작이다.
+- unit test 신규 8개: `extract_fmkorea_board_post_ids` 3개(best/best2
+  접두사 링크, humor 비접두사 링크, best 게시판에서 비접두사 링크는 무시)
+  + collector 4개(멤버십으로 올바른 접두사 해석, 멤버십에 없는 글 drop,
+  Naver가 이미 접두사를 붙여 줬어도 다시 검증, 멤버십 캐시가 여러
+  `search()` 호출에 걸쳐 재사용됨) + robots 회귀 1개(위 2번 참고).
+  `tests_v2`+`tests` **343 passed**(334 + 9).
 
 ## 기능 완료 시 커밋·푸시 규칙
 - 기능 단위의 구현과 필요한 테스트가 완료되면 `HANDOFF.md`를 최신 상태로 갱신한 뒤 해당 기능의 변경만 선별하여 커밋하고 원격 브랜치에 푸시한다.

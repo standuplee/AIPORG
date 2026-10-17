@@ -55,7 +55,13 @@ from urllib.parse import urlparse
 from uuid import NAMESPACE_URL, uuid5
 
 from app.collectors.base import BaseCollector
-from app.collectors.community.parsers import PostContent, POST_URL_PATTERNS, get_parser
+from app.collectors.community.parsers import (
+    FMKOREA_BOARDS,
+    PostContent,
+    POST_URL_PATTERNS,
+    extract_fmkorea_board_post_ids,
+    get_parser,
+)
 from app.collectors.community.policy import SitePolicy, load_policies
 from app.collectors.community.ratelimit import RateLimiter
 from app.collectors.community.robots import RobotsGate
@@ -114,6 +120,9 @@ class CommunityCollector(BaseCollector):
         # call" semantics rather than resetting per keyword.
         self._rate_limiters: dict[str, RateLimiter] = {}
         self._parsed_cache: dict[str, PostContent] = {}
+        # post id -> board ("best"/"best2"/"humor"), built once per instance
+        # from each board's own listing page (see _fmkorea_board_membership).
+        self._fmkorea_membership: dict[str, str] | None = None
 
     def _enabled_policies(self) -> dict[str, SitePolicy]:
         return {name: policy for name, policy in self.policies.items() if policy.enabled}
@@ -134,6 +143,11 @@ class CommunityCollector(BaseCollector):
         results: list[SearchResult] = []
         for site, url, snippet_title in candidates:
             policy = enabled[site]
+            if site == "fmkorea":
+                resolved_url = await self._resolve_fmkorea_url(url, policy)
+                if resolved_url is None:
+                    continue
+                url = resolved_url
             if policy.is_excluded(url):
                 continue
             pattern = POST_URL_PATTERNS.get(site)
@@ -275,3 +289,54 @@ class CommunityCollector(BaseCollector):
         if not 200 <= response.status_code < 300:
             return None
         return get_parser(site).parse(response.body)
+
+    async def _resolve_fmkorea_url(self, url: str, policy: SitePolicy) -> str | None:
+        """Rewrite a discovered fmkorea URL to its robots.txt-allowed form, or drop it.
+
+        fmkorea's robots.txt (confirmed live) only allows generic bots on
+        "/", "/best", "/best2", "/humor" -- an individual post's bare
+        numeric URL (what Naver's index actually returns) is never allowed
+        regardless of which board it's in. The same post is reachable at
+        "/<board>/<id>" when <board> is one of those three (confirmed
+        live), but only a post genuinely linked from that board's own
+        listing page is treated as belonging to it -- see
+        parsers.extract_fmkorea_board_post_ids's docstring for why an
+        unverified prefix stamp is not an option. This also re-derives the
+        id from whatever path Naver indexed (bare or already prefixed)
+        rather than trusting Naver's own prefix, if any.
+        """
+        last_segment = urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]
+        if not last_segment.isdigit():
+            return None
+        membership = await self._fmkorea_board_membership(policy)
+        board = membership.get(last_segment)
+        if board is None:
+            return None
+        return f"https://www.fmkorea.com/{board}/{last_segment}"
+
+    async def _fmkorea_board_membership(self, policy: SitePolicy) -> dict[str, str]:
+        if self._fmkorea_membership is not None:
+            return self._fmkorea_membership
+        membership: dict[str, str] = {}
+        limiter = self._rate_limiter("fmkorea", policy)
+        for board in FMKOREA_BOARDS:
+            board_url = f"https://www.fmkorea.com/{board}"
+            if policy.respect_robots and not await self._robots_gates["fmkorea"].allowed(board_url):
+                # Shouldn't happen for these three paths given fmkorea's
+                # actual robots.txt, but stay defensive rather than assume.
+                continue
+            if not await limiter.acquire():
+                break  # this site's per-run request budget is used up
+            try:
+                response = await self.transport.get(
+                    board_url,
+                    headers={"User-Agent": policy.user_agent, "Accept-Language": "ko-KR,ko;q=0.9"},
+                )
+            except CollectorError:
+                continue
+            if not 200 <= response.status_code < 300:
+                continue
+            for post_id in extract_fmkorea_board_post_ids(response.body, board):
+                membership.setdefault(post_id, board)
+        self._fmkorea_membership = membership
+        return membership
