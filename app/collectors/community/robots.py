@@ -1,0 +1,61 @@
+"""robots.txt compliance gate, ported from ``aiporg/collect/community/robots.py``.
+
+Fetches and caches each domain's robots.txt once (through the collector's own
+transport, so it goes through the same retry/timeout behavior as every other
+request) and answers whether a given URL may be fetched for the configured
+user agent. Unreadable or unparseable robots.txt fails closed -- deny, not
+allow -- the same "준법 우선" choice 1.0 made; a network hiccup on
+robots.txt must never silently grant access that a real robots.txt would
+have denied.
+"""
+
+from __future__ import annotations
+
+import urllib.robotparser
+from typing import Protocol
+from urllib.parse import urlparse
+
+from app.collectors.transport import HttpResponse
+
+
+class _Transport(Protocol):
+    async def get(
+        self, url: str, *, params: dict[str, object] | None = None, headers: dict[str, str] | None = None
+    ) -> HttpResponse: ...
+
+
+class RobotsGate:
+    def __init__(self, transport: _Transport, *, user_agent: str) -> None:
+        self.transport = transport
+        self.user_agent = user_agent
+        self._cache: dict[str, urllib.robotparser.RobotFileParser | None] = {}
+
+    async def _parser(self, url: str) -> urllib.robotparser.RobotFileParser | None:
+        parsed = urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        if base in self._cache:
+            return self._cache[base]
+        parser = urllib.robotparser.RobotFileParser()
+        try:
+            response = await self.transport.get(
+                base + "/robots.txt", headers={"User-Agent": self.user_agent}
+            )
+        except Exception:  # noqa: BLE001 -- any transport failure fails closed below
+            self._cache[base] = None
+            return None
+        if response.status_code >= 400:
+            # No robots.txt is, per the standard, full allow.
+            parser.parse([])
+        else:
+            parser.parse(response.body.splitlines())
+        self._cache[base] = parser
+        return parser
+
+    async def allowed(self, url: str) -> bool:
+        parser = await self._parser(url)
+        if parser is None:
+            return False  # fail closed: robots.txt was unreadable
+        try:
+            return parser.can_fetch(self.user_agent, url)
+        except Exception:  # noqa: BLE001
+            return False

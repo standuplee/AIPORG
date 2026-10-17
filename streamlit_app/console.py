@@ -47,6 +47,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.analytics.service import AnalyticsService
 from app.cleaning.service import CleaningService
+from app.collectors.community import CommunityCollector, load_policies as load_community_policies
 from app.collectors.daum_news import DaumNewsCollector
 from app.collectors.naver_news import NaverNewsCollector
 from app.collectors.google_search import GoogleSearchCollector
@@ -103,12 +104,13 @@ from app.workflows.multi_query_collection_to_evidence import (
 )
 
 # label -> settings credential key used to build the real collector.
-IMPLEMENTED_PROVIDERS = ["naver", "daum", "youtube", "google"]
+IMPLEMENTED_PROVIDERS = ["naver", "daum", "youtube", "google", "community"]
 PROVIDER_LABELS = {
     "naver": "네이버 뉴스",
     "daum": "다음 뉴스",
     "youtube": "유튜브",
     "google": "구글 검색",
+    "community": "커뮤니티 (클리앙/디시인사이드/펨코/루리웹/더쿠)",
 }
 PROVIDER_CHANNELS = {
     "naver": ChannelType.NEWS,
@@ -118,10 +120,8 @@ PROVIDER_CHANNELS = {
     # tagged NEWS as a documented simplification (see
     # app/collectors/google_search.py's module docstring).
     "google": ChannelType.NEWS,
+    "community": ChannelType.COMMUNITY,
 }
-PLANNED_PROVIDERS = [
-    "커뮤니티: 클리앙/디시인사이드/펨코/루리웹/더쿠 (목록 확정, 수집기 포팅 전 — M1)",
-]
 
 # app/core/state_machine.py enforces this exact forward-only order; mirrored
 # here only to answer "is this project at least at stage X" for UI gating.
@@ -192,6 +192,16 @@ def build_collectors(settings: Settings) -> dict[str, object]:
         collectors["google"] = GoogleSearchCollector(
             api_key=settings.google_api_key,
             search_engine_id=settings.google_search_engine_id,
+        )
+    if settings.naver_client_id and settings.naver_client_secret:
+        # Discovery reuses the Naver web-search API, same credentials as the
+        # news collector -- no separate community API key exists for any of
+        # the five sites. Collection still yields nothing until an operator
+        # enables at least one site in config/community.yaml (see the
+        # caption next to the checkbox in page_collect()).
+        collectors["community"] = CommunityCollector(
+            client_id=settings.naver_client_id,
+            client_secret=settings.naver_client_secret,
         )
     return collectors
 
@@ -303,6 +313,20 @@ def page_collect(factory: sessionmaker) -> None:
             "다시 실행할 수 없다. 키워드를 바꿔 다시 수집하려면 '1. 월별 프로젝트'에서 새 "
             "프로젝트를 만들어라."
         )
+        with session_scope(factory) as session:
+            queries = SqlAlchemyQuerySetRepository(session).get(project_id)
+        st.markdown(f"**조사 기간:** {project.analysis_period.start} ~ {project.analysis_period.end}")
+        if queries:
+            st.markdown(f"**수집한 키워드 ({len(queries)}개):**")
+            st.markdown("\n".join(f"- {query.query}" for query in queries))
+        else:
+            st.caption("저장된 키워드를 찾지 못했다.")
+        st.caption(
+            "조사 기간은 '1. 월별 프로젝트'에서 설정한 값이다 — naver/daum 등 "
+            "collector가 아직 날짜로 결과를 거르지 않으므로(위 6차 기록 참고), "
+            "실제로 수집된 문서가 이 기간 안에만 있다는 보장은 아니다. '3. 수집 "
+            "결과 검토'에서 실행 이력과 실제 문서 수를 확인하라."
+        )
         return
 
     settings = get_settings()
@@ -343,8 +367,20 @@ def page_collect(factory: sessionmaker) -> None:
             checked = st.checkbox(f"{label} — {status}", value=available, disabled=not available)
             if checked and available:
                 selected_providers.append(provider_key)
-        for label in PLANNED_PROVIDERS:
-            st.checkbox(f"{label}", value=False, disabled=True)
+        if "community" in collectors:
+            enabled_sites = sorted(
+                name for name, policy in load_community_policies().items() if policy.enabled
+            )
+            if enabled_sites:
+                st.caption(f"커뮤니티 활성 사이트: {', '.join(enabled_sites)}")
+            else:
+                st.caption(
+                    "커뮤니티는 `config/community.yaml`의 모든 사이트가 기본 "
+                    "`enabled: false`다(운영자가 각 사이트의 robots.txt·이용약관을 "
+                    "검토한 뒤 직접 활성화해야 한다, 1.0부터 유지된 안전장치). 지금 "
+                    "체크해도 활성 사이트가 없으면 결과 0건으로 끝난다 — 오류가 "
+                    "아니다."
+                )
 
         submitted = st.form_submit_button("수집 실행")
 
