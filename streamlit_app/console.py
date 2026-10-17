@@ -501,8 +501,8 @@ def page_analytics(factory: sessionmaker) -> None:
         "이슈 확정과 통계 집계는 아래 버튼으로 이 화면에서 바로 실행한다. 감성 "
         "분류는 기존 metadata 라벨 집계뿐이고 연관 키워드는 형태소 분석이 아닌 "
         "문자 토큰 빈도다(docs/aiporg2/analytics.md 참고) — 보여주는 수치의 산식 "
-        "자체는 M2에서 더 보완해야 한다. 댓글(유튜브)은 `comment_count`로 따로 "
-        "집계되고 본문 언급량(`unique_documents`)에는 섞이지 않는다."
+        "자체는 M2에서 더 보완해야 한다. 댓글(유튜브·네이버)은 `comment_count`로 "
+        "따로 집계되고 본문 언급량(`unique_documents`)에는 섞이지 않는다."
     )
 
     with session_scope(factory) as session:

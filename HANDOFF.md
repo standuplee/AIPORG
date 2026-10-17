@@ -528,6 +528,88 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
   반영한 것). `tests_v2`+`tests` **297 passed**(292 + 5). 실제 YouTube API
   네트워크 호출은 하지 않았다.
 
+## 이번 작업과 검증 (2026-10-17, 13차: 네이버 댓글 수집 + 다음 댓글 조사)
+
+사용자가 "naver, daum은 댓글 어떻게 수집해? 그것도 파이프라인에 같이
+스크랩하는거 있으면 좋겠는데"로 요청. 12차에서 "공식 API가 없는 채널은
+스크래핑 없이는 못 한다"고 적었던 것을 실제로 확인·구현해본 결과.
+
+- **네이버는 구현했다.** 네이버는 공식 Open API(검색 API)에는 댓글
+  엔드포인트가 없지만, 실제 기사 페이지의 댓글 위젯 자체가 쓰는
+  `https://apis.naver.com/commentBox/cbox/web_neo_list_jsonp.json`라는
+  **비공식·미문서화 CBOX API**를 직접 `curl`/`requests`로 호출해보니
+  **인증 없이, User-Agent 헤더만 있으면 동작**한다는 것을 확인했다(실제
+  469개 댓글이 달린 기사로 라이브 검증). 그래서 `NaverNewsCollector`에
+  유튜브와 같은 패턴으로 댓글 수집을 추가했다:
+  `search()`가 기사의 naver 호스팅 링크(`n.news.naver.com/.../article/{oid}/{aid}`)
+  에서 oid/aid를 뽑아 CBOX를 호출하고, 댓글마다 `cm={댓글번호}&pid={부모
+  문서ID}`를 쿼리로 붙인 합성 URL의 `SearchResult`로 반환한다(`pid`는
+  기사 URL — originallink든 naver link든 실제 선택된 것 — 로 미리 계산한
+  `uuid5` 값이라 댓글 fetch 시점에 기사를 다시 조회할 필요가 없다).
+  `fetch()`는 URL에 `cm`/`pid`가 있으면 CBOX를 다시 호출해 그 댓글만 찾아
+  `metadata`에 `document_type="comment"`/`parent_document_id`/공감·비공감
+  수를 채운다. 댓글이 꺼져있거나(`exposureConfig.status != COMMENT_ON`)
+  댓글 API 호출 자체가 실패하면 **그 기사만 조용히 건너뛰고 기사 자체의
+  수집은 막지 않는다**(12차 유튜브와 동일한 안전장치). 기본값
+  `include_comments=True`, `max_comments_per_article=20`(1~100 범위
+  검증).
+- **라이브 검증 중 실제 버그 3개를 발견·수정했다**(전부 가정이 아니라
+  실제 운영 API에 직접 호출해서 찾은 것):
+  1. **댓글과 무관한 기존 버그**: `search()`가 `description`이 없으면
+     결과 전체를 버리고 있었는데, 네이버가 실제로 빈 `description`을
+     반환하는 기사가 존재함을 라이브로 확인(`koreadaily.com` 기사 1건).
+     `description`은 애초에 저장도 안 되는 필드라 비어 있어도 버릴
+     이유가 없어서, 존재 자체는 요구하지 않고 타입만 검증하도록 수정.
+     이 버그는 같은 페이지에 그런 기사가 하나라도 섞이면 **최대 100건의
+     결과 전체가 조용히 사라지는** 심각한 버그였다.
+  2. **User-Agent 미설정 시 차단**: CBOX 엔드포인트는 User-Agent 없이
+     호출하면 HTTP 200으로 위장한 Tomcat 403 Forbidden 페이지를
+     반환한다 — 헤더 하나만 빠져도 "성공했지만 댓글 0개"로 조용히
+     실패하는 상태였다. `User-Agent: Mozilla/5.0` 추가로 해결.
+  3. **JSONP 파싱**: 실제 응답은 `_callback({...});`로 끝(세미콜론
+     있음)인데, 처음 작성한 파싱 코드는 `_callback({...})`(세미콜론
+     없음)를 가정해서 `JSONDecodeError: Extra data`로 실패했다.
+     `.rstrip()` 후 세미콜론→닫는 괄호 순서로 벗겨내도록 수정하고,
+     테스트 fixture(`_cbox_jsonp`)도 세미콜론 포함 형태로 고쳐서 앞으로도
+     테스트가 현실과 다른 가정을 하지 않도록 했다.
+- **엔드투엔드 라이브 검증**: 키워드 "행정공개"로 실제 `search()` 호출 →
+  기사 1000건 + 댓글 1054건(합계 2054건) 수집 확인. 그 중 댓글 하나를
+  실제로 `fetch()`해서 `metadata.parent_document_id`가 **같은 호출에서
+  찾은 실제 기사 하나의 document_id와 정확히 일치**하는 것까지 직접
+  확인했다(`parent article url: https://biz.sbs.co.kr/article_hub/...`).
+- **Analytics/Workflow 쪽은 추가 수정이 필요 없었다.** 12차에서
+  `IssuesToAnalyticsWorkflow`가 `document_type == "comment"`를 채널
+  구분 없이 걸러내도록 만들어놔서, 네이버 댓글도 별도 코드 변경 없이
+  자동으로 `comment_count`로 분리 집계된다(채널에 무관하게 동작하도록
+  이미 설계되어 있었음을 재확인).
+- **다음(Daum)은 조사만 하고 구현하지 않기로 결론 냈다 — 빠뜨린 게
+  아니라 의도적 범위 제외다.** 실제 다음 기사 페이지(`v.daum.net`)를
+  브라우저로 열어 네트워크를 직접 관찰한 결과, 댓글은
+  `https://comment.daum.net/apis/v2/ui/post/{docId}/comments` 같은
+  REST 엔드포인트에서 오긴 하지만, **모든 호출에 카카오의 "Alex" 댓글
+  SDK(`comment.sdk.js`)가 자체적으로 발급하는 세션 단위 `Authorization`
+  베어러 토큰이 필요**하다(`alex-version`/`alex-referer` 헤더도 함께
+  요구). 네이버 CBOX처럼 User-Agent/Referer 헤더만으로 열리는 게
+  아니라, SDK가 별도 핸드셰이크로 토큰을 발급받는 구조라 단순
+  `requests` 호출로는 401만 반환된다. 이 토큰을 브라우저에서 가로채서
+  서버 쪽 collector에 재사용하는 방법도 시도했으나, 실제 토큰 값은
+  민감한 인증 정보라 추출하지 않았다(의도적으로 중단). 다음 댓글을
+  수집하려면 기사마다 카카오 SDK가 로드된 실제 브라우저를 구동해야 하는데,
+  이는 지금의 `requests` 기반 `CollectorProtocol` 패턴과 아키텍처가
+  근본적으로 다르다(훨씬 무겁고 느림) — 그래서 새로운 결정 사항으로
+  남겨두고 구현하지 않았다. 필요하면 별도 논의 후 헤드리스 브라우저
+  기반 collector를 새로 설계해야 한다.
+- unit test 신규: 네이버 collector 6개(빈 description 허용, 댓글 포함
+  검색, naver 링크 없을 때 댓글 스킵, 댓글 꺼진 기사 스킵, 댓글 API 실패
+  시 기사만 유지, 댓글 fetch의 document_type/parent_document_id 검증,
+  댓글 재조회 실패 시 에러). `tests_v2`+`tests` **304 passed**(297 + 7).
+  실제 네이버 API 네트워크 호출은 라이브 검증 때만 수동으로 했고, unit
+  test 자체는 네트워크를 타지 않는다.
+- **다음 정확한 다음 행동**: (1) 다음 댓글을 헤드리스 브라우저 기반으로
+  구현할지, 아니면 포기하고 네이버/유튜브만으로 남길지 결정, (2) 댓글이
+  Evidence/Fact/Issue 파이프라인에도 섞여 들어가는 문제(12차에서 적어둔
+  미해결 사항)를 네이버 댓글까지 포함해서 처리할지 결정.
+
 ## 기능 완료 시 커밋·푸시 규칙
 - 기능 단위의 구현과 필요한 테스트가 완료되면 `HANDOFF.md`를 최신 상태로 갱신한 뒤 해당 기능의 변경만 선별하여 커밋하고 원격 브랜치에 푸시한다.
 - 커밋 전 `git status`와 diff를 확인한다. 다른 작업자의 변경, 무관한 파일, 비밀값은 포함하지 않는다. 테스트가 실패하거나 기능이 미완성이면 완료 커밋으로 처리하지 않고 상태를 `HANDOFF.md`에 기록한다.
