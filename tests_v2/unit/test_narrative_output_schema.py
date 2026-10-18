@@ -73,3 +73,40 @@ def test_output_carries_generation_provenance_when_llm_produced_it() -> None:
     )
     assert output.generation.provider == "gemini"
     assert output.generation.usage["output_tokens"] == 120
+
+
+def test_output_defaults_to_unapproved() -> None:
+    output = NarrativeOutputSchema(
+        project_id=uuid4(),
+        run=VersionedRunSchema(
+            run_id=uuid4(), input_version="v1", output_version="v1", created_at=NOW
+        ),
+        sentences=[NarrativeSentenceSchema(text="템플릿 문장.", fact_ids=[uuid4()])],
+    )
+    assert output.approved is False
+    assert output.approved_at is None
+
+
+def test_output_approved_requires_timestamp() -> None:
+    with pytest.raises(ValidationError, match="approved_at"):
+        NarrativeOutputSchema(
+            project_id=uuid4(),
+            run=VersionedRunSchema(
+                run_id=uuid4(), input_version="v1", output_version="v1", created_at=NOW
+            ),
+            sentences=[NarrativeSentenceSchema(text="템플릿 문장.", fact_ids=[uuid4()])],
+            approved=True,
+        )
+
+
+def test_output_unapproved_rejects_timestamp() -> None:
+    with pytest.raises(ValidationError, match="approved_at"):
+        NarrativeOutputSchema(
+            project_id=uuid4(),
+            run=VersionedRunSchema(
+                run_id=uuid4(), input_version="v1", output_version="v1", created_at=NOW
+            ),
+            sentences=[NarrativeSentenceSchema(text="템플릿 문장.", fact_ids=[uuid4()])],
+            approved=False,
+            approved_at=NOW,
+        )

@@ -8,11 +8,16 @@ draft or the deterministic template renderer can both produce. They are
 additive -- ``NarrativeContext`` and its field names are unchanged, and
 ``ReportSchema.context`` (app/schemas/report.py) still takes a
 ``NarrativeContext``, not this output shape.
+
+``NarrativeOutputSchema.approved``/``approved_at`` (added 2026-10-18, see
+``docs/aiporg2/visualization-design.md``) are additive fields for the same
+reason -- they default to unapproved so every existing caller/payload stays
+valid.
 """
 
 from datetime import datetime
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AwareDatetime, Field, field_validator, model_validator
 
 from app.core.enums import SentimentLabel
 from app.schemas.common import ProjectId, RunId, SchemaBase, VersionedRunSchema
@@ -92,6 +97,16 @@ class NarrativeOutputSchema(SchemaBase):
     analytics_run_id: RunId | None = None
     generation: NarrativeGenerationSchema | None = None
     sentences: list[NarrativeSentenceSchema]
+    approved: bool = False
+    approved_at: AwareDatetime | None = None
+
+    @model_validator(mode="after")
+    def validate_approval_timestamp(self) -> "NarrativeOutputSchema":
+        if self.approved and self.approved_at is None:
+            raise ValueError("approved output must carry approved_at")
+        if not self.approved and self.approved_at is not None:
+            raise ValueError("unapproved output must not carry approved_at")
+        return self
 
 
 NarrativeOutputRead = NarrativeOutputSchema

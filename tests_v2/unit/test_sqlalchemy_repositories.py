@@ -18,6 +18,7 @@ from app.db.session import session_scope
 from app.models import Base
 from app.models.project import Query
 from app.repositories.sqlalchemy import (
+    RepositoryConflictError,
     SqlAlchemyAnalyticsRepository,
     SqlAlchemyCollectionRunRepository,
     SqlAlchemyDocumentRepository,
@@ -51,7 +52,11 @@ from app.schemas.narrative import (
 from app.schemas.project import ProjectCreate
 from app.schemas.query import SearchQuery
 from app.schemas.report import ReportSchema
-from app.schemas.visualization import VisualizationAssetSchema
+from app.schemas.visualization import (
+    VisualizationAssetSchema,
+    VisualizationItemSchema,
+    VisualizationOutputSchema,
+)
 
 
 def _factory():
@@ -260,6 +265,110 @@ def test_downstream_repositories_round_trip_fixed_contracts() -> None:
         report_repo = SqlAlchemyReportRepository(session)
         report_repo.create(report)
         assert report_repo.get_latest(project.project_id) == report
+
+
+def test_narrative_output_approval_updates_in_place_without_new_version() -> None:
+    factory = _factory()
+    now = datetime(2026, 10, 18, tzinfo=timezone.utc)
+    with session_scope(factory) as session:
+        project = SqlAlchemyProjectRepository(session).create(_project())
+        narrative_repo = SqlAlchemyNarrativeRepository(session)
+        output = NarrativeOutputSchema(
+            project_id=project.project_id,
+            run=VersionedRunSchema(
+                run_id=uuid4(), input_version="v1", output_version="v1", created_at=now,
+            ),
+            sentences=[NarrativeSentenceSchema(text="템플릿 문장.", fact_ids=[uuid4()])],
+        )
+        narrative_repo.save_output(project.project_id, output)
+
+        approved = narrative_repo.approve_output(
+            project.project_id, output.run.run_id, True, now,
+        )
+        assert approved.approved is True
+        assert approved.approved_at == now
+        assert narrative_repo.get_latest_output(project.project_id) == approved
+        # approving must not create a new version
+        assert len(narrative_repo.list_outputs(project.project_id)) == 1
+
+        unapproved = narrative_repo.approve_output(
+            project.project_id, output.run.run_id, False, None,
+        )
+        assert unapproved.approved is False
+        assert unapproved.approved_at is None
+
+        with pytest.raises(RepositoryConflictError):
+            narrative_repo.approve_output(project.project_id, uuid4(), True, now)
+
+
+def test_visualization_output_round_trips_by_slot_and_approves_in_place() -> None:
+    factory = _factory()
+    now = datetime(2026, 10, 18, tzinfo=timezone.utc)
+    with session_scope(factory) as session:
+        project = SqlAlchemyProjectRepository(session).create(_project())
+        visualization_repo = SqlAlchemyVisualizationRepository(session)
+
+        def _output(slot_key: str, version: str, value: int) -> VisualizationOutputSchema:
+            return VisualizationOutputSchema(
+                project_id=project.project_id,
+                run=VersionedRunSchema(
+                    run_id=uuid4(), input_version=version, output_version=version,
+                    created_at=now,
+                ),
+                analytics_run_id=uuid4(),
+                slot_key=slot_key,
+                kind="chart",
+                title="채널 비중",
+                items=[VisualizationItemSchema(
+                    label="뉴스", value=value,
+                    analytics_path="metrics.channel_mentions.NEWS", order=0,
+                )],
+            )
+
+        donut_v1 = _output("channel_donut", "v1", 10)
+        visualization_repo.save_output(project.project_id, donut_v1)
+        cards_v1 = _output("top10_keywords", "v1", 5)
+        visualization_repo.save_output(project.project_id, cards_v1)
+
+        assert visualization_repo.get_latest_output(
+            project.project_id, "channel_donut"
+        ) == donut_v1
+        assert visualization_repo.get_latest_output(
+            project.project_id, "top10_keywords"
+        ) == cards_v1
+
+        donut_v2 = donut_v1.model_copy(update={
+            "run": VersionedRunSchema(
+                run_id=uuid4(), input_version="v1", output_version="v2",
+                created_at=now.replace(microsecond=now.microsecond + 1 if now.microsecond < 999_999 else 0),
+            ),
+        })
+        visualization_repo.save_output(project.project_id, donut_v2)
+        assert visualization_repo.get_latest_output(
+            project.project_id, "channel_donut"
+        ) == donut_v2
+        assert visualization_repo.list_outputs(project.project_id, "channel_donut") == [
+            donut_v2, donut_v1,
+        ]
+        # a version in another slot must not be visible under this slot
+        assert all(
+            output.slot_key == "channel_donut"
+            for output in visualization_repo.list_outputs(project.project_id, "channel_donut")
+        )
+
+        approved = visualization_repo.approve_output(
+            project.project_id, donut_v2.run.run_id, True, now,
+        )
+        assert approved.approved is True
+        assert visualization_repo.get_latest_output(
+            project.project_id, "channel_donut"
+        ) == approved
+
+        # output rows must not leak into the identity-only asset listing
+        assert visualization_repo.list_by_project(project.project_id) == []
+
+        with pytest.raises(RepositoryConflictError):
+            visualization_repo.approve_output(project.project_id, uuid4(), True, now)
 
 
 def test_canonical_document_selection_excludes_duplicates_unclean_and_other_projects():

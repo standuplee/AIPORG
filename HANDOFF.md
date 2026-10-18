@@ -39,6 +39,7 @@ AIPORG 전용 보고서 목차·표지·서식·차트 PNG 배치와 형식별 �
 - 작업 트리에는 이 인계 설정 이전부터 다수의 미커밋 변경이 있다. 인계받는 도구는 이를 기존 작업으로 보존한다.
 - **테스트 환경: 확인·해결됨.** 시스템 `/usr/bin/python3`(3.9.6)에는 `matplotlib==3.11.0`이 설치되지 않는다(3.10+ 필요). 저장소 루트에 Homebrew Python 3.12로 `.venv`를 만들어 `requirements-dev.txt`(+ `streamlit`, `python-dotenv`)를 설치했다. `tests_v2`+`tests` **270 passed**. `.venv/`와 `aiporg2.db`는 `.gitignore`에 추가함.
 - `AGENTS.md`의 기존 1~9번 개발 규칙을 유지한다. 같은 checkout에서는 한 번에 한 도구만 파일을 수정한다. 별도 worktree를 쓰면 인계 파일과 코드 변경을 함께 전달한다.
+- **Visualization/Report 승인 계약이 결정·구현됐다(2026-10-18, 16차).** 아래 "이번 작업과 검증 (16차)" 절과 `docs/aiporg2/visualization-design.md` 참고. Streamlit 화면 6(시각 자료 편집·승인)·7(보고서 미리보기)이 이제 실제 동작 코드다 — "미구현" 패널은 화면 8(출력·이력)만 남았다.
 
 ## Streamlit 실행 방법
 
@@ -99,8 +100,8 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 | Phase 3 | 수집 → 정제·중복 제거 → Evidence 저장과 실패 후 재개 | 네이버/다음/유튜브/구글/커뮤니티, Streamlit에서 키워드 N개 fan-out까지 실제로 동작(5·7·11·14차). 유튜브·네이버 댓글도 수집됨(12·13차). 커뮤니티는 14차에서 포팅했지만 `config/community.yaml`의 전 사이트가 기본 비활성(운영자 승인 전 0건). 블로그는 미구현 |
 | Phase 4 | Evidence → 검증된 Fact → Issue 확정과 출처 역추적 | 기록상 완료, Streamlit "이슈 확정 실행" 버튼으로 실제 실행 확인(9차). 공식 출처 정책 미결정 |
 | Phase 5 | canonical 문서 기준 언급량·채널·키워드·감성·비교기간 집계와 AnalyticsSnapshot | 기록상 완료, Streamlit "통계 집계 실행" 버튼으로 실제 실행 확인(9차). 댓글은 `comment_count`로 분리 집계(12차) |
-| Phase 6 | GPT/Claude 서술 초안, 근거·수치 검증, 초안·수정·승인 버전 저장, Streamlit 검수 UI | 출력 계약 결정·구현(8차), Gemini 어댑터 구현(8차), Streamlit 화면 1~5 동작(9차)로 초안 생성·저장·표시까지 됨; 사용자 수정·버전 비교·승인 UI는 아직 없음 |
-| Phase 7 | 승인본과 AnalyticsSnapshot에서 차트·보고서 조립, DOCX·Markdown·HWPX 출력 및 실제 HWPX 열림·배치 검증 | 미구현 |
+| Phase 6 | GPT/Claude 서술 초안, 근거·수치 검증, 초안·수정·승인 버전 저장, Streamlit 검수 UI | 완료. 출력 계약(8차)·Gemini 어댑터(8차)·Streamlit 화면 1~5(9차)·수정·버전 비교(10차)에 이어 **narrative 승인(approve_output)까지 16차에서 실제로 연결함** |
+| Phase 7 | 승인본과 AnalyticsSnapshot에서 차트·보고서 조립, DOCX·Markdown·HWPX 출력 및 실제 HWPX 열림·배치 검증 | **Visualization/Report 승인 계약 결정·구현, VIS-02/VIS-07 편집·승인 UI, 최종 승인→Report 생성까지 16차에서 완료.** DOCX/Markdown/HWPX writer 자체는 아직 미구현(M5/M6) |
 | Phase 8 | 프로젝트 실행·상태·재시도·승인본·산출물 조회를 위한 API/CLI와 운영 설정 | 미구현 |
 
 개정 실행 순서는 **M0 계약·템플릿 기준 → M1 실제 다중 채널 수집 보완 → M2 분석·근거 보완 → M3 LLM 초안 → M4 Streamlit 검수·승인 → M5 표·그림 및 HWPX → M6 동일 승인본 3형식 출력·운영**이다. 각 모듈 unit test, 단계별 integration test, 기존 1.0 회귀 테스트를 통과한 뒤 진행한다. 승인되지 않은 초안은 최종 보고서로 내보내지 않는다.
@@ -109,11 +110,11 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 
 1. 블로그는 1.0 코드를 2.0 계약으로 포팅한다(유튜브·구글은 7·11차, 유튜브·네이버 댓글은 12·13차, 커뮤니티는 14차에서 이미 완료). `MultiQueryCollectionToEvidenceWorkflow`의 `CollectionRequest.collector`로 바로 꽂을 수 있는 구조다.
    커뮤니티는 코드는 끝났지만 운영자가 `config/community.yaml`에서 사이트를 켜야 실제로 수집되니, "다음 행동"이라기보다 "운영자 결정 대기"에 가깝다 — 아래 §확정된 결정과 14차 기록 참고.
-2. Visualization·Report의 시각 자산 버전/승인 저장 계약을 명시적으로 결정한다(Narrative 출력 계약은 8차에서 이미 결정·구현함 — 구현 계획 §2, §7 결정 목록 중 미해결: HWPX 자산 확보, Visualization/Report 계약, 1.0 수집기 포팅 범위, 공식 출처 정책). 이게 결정되면 "5. 서술 편집"의 비활성화된 "최종 승인" 버튼을 실제로 연결할 수 있다.
+2. ~~Visualization·Report의 시각 자산 버전/승인 저장 계약을 명시적으로 결정한다~~ — **결정·구현 완료(2026-10-18, 16차).** 아래 "이번 작업과 검증 (16차)" 절과 `docs/aiporg2/visualization-design.md` 참고.
 3. 구글 결과의 channel 분류를 전부 `NEWS`로 단순화해둔 것(11차)을 URL/도메인 기반으로 정교화할지 결정한다(지금은 의도적 단순화일 뿐 결정 대상은 아니었음 — 필요성이 보이면 결정 목록에 추가).
 4. 댓글이 Evidence→Fact→Issue 파이프라인에도 섞여 들어가는 걸 그대로 둘지 결정한다(12차에서 새로 생긴 미해결 질문 — 아래 "확정된 결정" 바로 다음 절 참고). 지금은 analytics 집계에서만 분리했고 Evidence/Fact 단계는 건드리지 않았다.
-5. 시각 자료 2종(채널 도넛, TOP10 카드)만 편집 UI에 연결 → HWPX 3쪽(표지/목차/요약) 시제품 순으로 1차 최소 단위를 넓힌다(구현 계획 §6).
-6. 별도 python-hwpx를 연결하고 7월 보고서의 대표 페이지 시제품을 실제 한컴에서 검증한다.
+5. python-hwpx를 연결하고 표지+목차+요약 3쪽 시제품을 만든다(16차에서 진행 중 — 아래 "이번 작업과 검증 (16차)" 절 참고). 실제 한컴에서의 열림·배치 검증은 아직 못 했다.
+6. VIS-01,03,04,06,08,09 등 나머지 시각 자료 종류와 일반 표 편집 UI를 확장한다(VIS-02/07만 16차에서 연결함).
 
 ## 확정된 결정 (2026-10-16)
 
@@ -159,8 +160,9 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 ## 사용자가 결정할 사항 (미해결, 상세는 구현 계획 §7)
 
 1. 원본 HWPX/로고/표지 사진 확보 가능 여부
-2. Visualization·Report 시각 자산 버전/승인 저장 계약 채택 여부(Narrative 출력
-   계약은 8차에서 최소 범위로 결정·구현 완료 — 아래 참고)
+2. ~~Visualization·Report 시각 자산 버전/승인 저장 계약 채택 여부~~ — **결정·구현
+   완료(2026-10-18, 16차): `docs/aiporg2/visualization-design.md`.** VIS-02/07
+   2종만 1차 범위(나머지 VIS-01,03,04,06,08,09는 다음 결정 대상).
 3. Gemini API 키/비용 책임, 월 예산(provider·모델은 8차에서 결정: Gemini
    gemini-2.0-flash)
 4. 1.0 블로그 수집기 "포팅" vs "재작성" 여부와 범위(유튜브는 7차, 커뮤니티는
@@ -864,6 +866,110 @@ robots.txt가 명시적으로 허용한 경로까지 전부 `False`(차단)로 �
   Naver가 이미 접두사를 붙여 줬어도 다시 검증, 멤버십 캐시가 여러
   `search()` 호출에 걸쳐 재사용됨) + robots 회귀 1개(위 2번 참고).
   `tests_v2`+`tests` **343 passed**(334 + 9).
+
+## 이번 작업과 검증 (2026-10-18, 16차: Visualization/Report 승인 계약 + VIS-02/07 편집·승인 UI)
+
+사용자가 15차 끝에 정리한 "다음 행동" 중 "1. Visualization/Report 시각 자산
+승인 계약 결정 → narrative '최종 승인' 버튼 연결"과 "2. 시각 자료 2종(채널
+도넛, TOP10 카드) 편집 UI → HWPX 3쪽 시제품"을 "1,2까지 진행"으로 승인.
+HWPX 부분은 아직 진행 중(별도로 아래에 기록).
+
+### M0 계약 결정: `docs/aiporg2/visualization-design.md` (신규 문서)
+
+기존 `VisualizationAssetSchema`/`ReportSchema`는 `tests_v2/contracts/
+test_fact_schema_contract.py`가 필드 집합·라운드트립을 그대로 고정해놔서
+**한 글자도 바꾸지 않았다** — Narrative 출력 때와 같은 절차(완전히 새
+모델만 추가)를 그대로 따랐다.
+
+- **`VisualizationItemSchema`/`VisualizationOutputSchema`**(신규,
+  `app/schemas/visualization.py`): `value`는 AnalyticsSnapshot 집계값을
+  그대로 복사하며 UI에서 직접 못 바꾼다(AGENTS.md 7번) — `label`/
+  `category`/`color`/`order`/`included`만 편집 가능. `slot_key`로 같은
+  프로젝트의 여러 시각 자료(채널 도넛/TOP10 카드)를 구분한다(Narrative
+  출력엔 없던 개념 — Narrative는 프로젝트당 흐름 하나뿐이라 슬롯이 필요
+  없었음). `approved`/`approved_at`도 같은 패턴으로 `NarrativeOutputSchema`
+  에 additive로 추가(기존 호출부는 전부 기본값 `False`/`None`으로 호환).
+- **승인은 새 버전을 만들지 않고 같은 row를 제자리에서 갱신한다**
+  (`approve_output`, narrative/visualization 둘 다). 내용이 아니라
+  메타데이터만 바뀌는 작업이라 — 기존 `CollectionRunRepository.complete()`
+  가 같은 PK row를 갱신하는 전례를 따름(append-only가 이 코드베이스의
+  절대 규칙은 아니라는 걸 재확인).
+- **"최종 승인"은 `Report`/`VisualizationAsset`에 필드를 추가하지 않고
+  구현했다.** `Report` row가 존재한다는 사실 자체가 "그 순간 전부
+  승인됐다"는 증거라서 승인 플래그를 따로 둘 이유가 없었다. 신규
+  `app/report/approval.py::ReportApprovalService`가 narrative 최신 출력
+  승인 여부 + `REQUIRED_VISUALIZATION_SLOTS = ("channel_donut",
+  "top10_keywords")` 각각의 최신 출력 승인 여부를 확인하고, 하나라도
+  없으면 `ReportApprovalError(missing=[...])`를 던져 Report를 만들지
+  않는다. 전부 통과하면 승인된 시각 자료마다 기존
+  `VisualizationAssetSchema` 식별자 row를 새로 등록하고 기존
+  `NarrativeContext`(입력)와 묶어 기존 `ReportRepository.create()`로
+  저장한다 — **새 schema도, 새 DB write 경로도 추가하지 않음.**
+- **알려진 범위 제한(의도적으로 다음으로 미룸):** `ReportSchema.context`는
+  여전히 입력 `NarrativeContext`이고 승인된 실제 문장
+  (`NarrativeOutputSchema.sentences`)을 Report가 직접 담지 않는다 —
+  narrative-design.md가 8차에 이미 지적한 간극, 이번 1차 최소 단위의
+  필수 조건은 아니라고 보고 범위에서 뺐다. 승인된 문장은
+  `NarrativeRepository.get_latest_output()`으로 계속 조회 가능.
+
+### 신규 `app/visualization/service.py::VisualizationRenderService`
+
+AnalyticsSnapshot.metrics에서 그대로 읽어온다(네트워크·LLM 호출 없음):
+VIS-02 채널 도넛은 `metrics["channel_mentions"]`, VIS-07 TOP10 카드는
+`metrics["keyword_frequencies"]`에서 상위 10개(건수 내림차순, 동률은
+키워드 사전순). 각 항목의 `analytics_path`가 근거 경로가 된다. 결정론적 —
+이미지 생성 모델 호출 없음(요구사항 §6.1 원칙).
+
+### Streamlit 연결 (`streamlit_app/console.py`)
+
+- **"5. 서술 편집"**: 비활성화해뒀던 "최종 승인" 버튼을 실제
+  `approve_output`에 연결(최신 버전에서만 승인 가능, 승인 취소도 제공).
+- **"6. 시각 자료 편집·승인"**(신규 화면): VIS-02/07 각각 탭으로 분리.
+  생성/재생성, 버전 선택, 항목별 라벨/분류/색상/순서/표시 여부 수정(새
+  버전으로 저장, 승인 상태는 미승인으로 리셋), 승인/승인취소(최신 버전만),
+  2개 이상 버전일 때 나란히 비교.
+- **"7. 보고서 미리보기"**(신규 화면): narrative + 시각 자료 2종의 승인
+  상태를 표로 보여주고, 전부 승인된 경우에만 "최종 승인(보고서 생성)"
+  버튼이 활성화되어 `ReportApprovalService`를 호출한다. 최근 승인본의
+  report_id·생성 시각·포함 시각 자료 수를 보여준다.
+- **실제로 찾은 버그(검증 중 발견·수정):** `page_report`의 최종 승인
+  버튼 핸들러가 처음엔 `with session_scope(factory) as session:` 블록
+  **안에서** `st.rerun()`을 호출하고 있었다. `st.rerun()`은 스크립트를
+  즉시 중단시키려고 내부적으로 예외를 던지는데, 이 예외가 `with` 블록을
+  빠져나가면서 `session_scope`의 `except Exception: session.rollback();
+  raise`를 타버려서, **Report가 실제로 생성된 바로 그 트랜잭션이 커밋되기
+  전에 롤백됐다** — 화면엔 에러도 안 뜨고(예외 자체는 정상적으로 처리됨)
+  성공 메시지도 안 보이는데(rerun이 지워버림) DB에는 아무것도 안 남는,
+  조용히 실패하는 버그였다. `AppTest`로 전체 흐름을 엔드투엔드 검증하다가
+  "버튼 클릭은 성공하는데 `reports` 테이블이 비어 있다"로 발견했다.
+  고치는 법은 다른 모든 버튼 핸들러가 이미 쓰던 패턴과 같다 —
+  `st.success()`/`st.rerun()`을 `with session_scope(...)` 블록 **밖으로**
+  빼서 커밋이 먼저 끝나게 한다.
+- **실제로 끝까지 실행해서 검증함(`AppTest`):** 가짜 데이터로
+  ANALYTICS_COMPLETED까지 세팅 → narrative 초안 승인 → VIS-02/07 둘 다
+  생성·승인 → "7. 보고서 미리보기"에서 "최종 승인" 버튼이 활성화되고
+  클릭 시 실제로 `Report`(시각 자료 2건 포함)가 DB에 저장되는 것까지
+  sqlite3로 직접 확인했다.
+
+### 테스트
+
+신규 unit test 23개: `VisualizationOutputSchema`/`VisualizationItemSchema`
+9개, `NarrativeOutputSchema.approved` 검증 2개(+기존 파일에 추가),
+`VisualizationRenderService` 6개, 저장소 2개(narrative `approve_output`,
+visualization output round-trip+승인), `ReportApprovalService` 3개(미승인
+전체 차단, 전체 승인 시 Report 생성, 시각 자료 재편집 후 재승인 전까지
+차단). `tests_v2`+`tests` **366 passed**(343 + 23). Streamlit 레이어는
+이전 라운드들과 같은 이유로 신규 unit test 없이 `AppTest`로만 수동 검증함
+(실행 스크립트는 세션 scratch에만 있었고 커밋하지 않음).
+
+### 아직 안 한 것 / 다음 행동
+
+- HWPX 3쪽 시제품(표지/목차/요약) — python-hwpx 연결 작업 중(진행 중,
+  별도로 다음 절에 기록되거나 다음 세션에서 이어감).
+- VIS-01,03,04,06,08,09 및 일반 표는 이번 범위 밖(1차 최소 단위는
+  VIS-02/07만).
+- `ReportSchema.context`에 승인된 narrative 문장을 실제로 번들링하는
+  문제(위 "알려진 범위 제한" 참고) — M5/M6 HWPX 조립 작업 때 다시 결정.
 
 ## 기능 완료 시 커밋·푸시 규칙
 - 기능 단위의 구현과 필요한 테스트가 완료되면 `HANDOFF.md`를 최신 상태로 갱신한 뒤 해당 기능의 변경만 선별하여 커밋하고 원격 브랜치에 푸시한다.

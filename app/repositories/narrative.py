@@ -1,6 +1,8 @@
 """Narrative repository protocol."""
 
+from datetime import datetime
 from typing import Protocol
+from uuid import UUID
 
 from app.repositories.base import SessionScopedRepository
 from app.schemas.common import ProjectId
@@ -40,4 +42,17 @@ class NarrativeRepository(SessionScopedRepository, Protocol):
         Supports version comparison and restoring/viewing an older draft --
         ``save_output`` never overwrites a prior version, so the full history
         is always available here.
+        """
+
+    def approve_output(
+        self,
+        project_id: ProjectId,
+        run_id: UUID,
+        approved: bool,
+        approved_at: datetime | None,
+    ) -> NarrativeOutputRead:
+        """Set the approval flag on an existing output version in place.
+
+        This does not create a new version -- approval is metadata about a
+        version, not a content change (see docs/aiporg2/visualization-design.md).
         """

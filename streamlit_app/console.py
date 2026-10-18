@@ -9,12 +9,14 @@ Instagram are out of scope (paid access), Google is in scope but has no
 collector implemented yet.
 
 This page only wires together existing ``app/`` contracts (repositories,
-collection service, enums). It adds no new schema. Narrative drafting,
-visualization/report approval, and HWPX/DOCX/MD export are not implemented
-yet (see the M0/M3/M5 sections of
-``docs/superpowers/plans/2026-09-08-aiporg2-implementation.md``) and are
-shown here as explicit "not implemented" panels rather than placeholders
-that look functional.
+collection service, enums, plus the additive output/approval contracts in
+``docs/aiporg2/visualization-design.md``, 2026-10-18). Narrative drafting,
+visualization (VIS-02 channel donut + VIS-07 TOP10 cards only -- the rest of
+VIS-01..09 are not built yet), and final report approval are implemented and
+wired end to end. HWPX/DOCX/MD export is not implemented yet (see the M5/M6
+sections of ``docs/superpowers/plans/2026-09-08-aiporg2-implementation.md``)
+and is shown here as an explicit "not implemented" panel rather than a
+placeholder that looks functional.
 """
 
 from __future__ import annotations
@@ -71,6 +73,7 @@ from app.issues.finalization import IssueFinalizationService
 from app.models.project import Query
 from app.narrative.llm_adapter import GeminiNarrativeAdapter, NarrativeGenerationError
 from app.narrative.template import TemplateNarrativeService
+from app.report.approval import ReportApprovalError, ReportApprovalService
 from app.repositories.sqlalchemy import (
     SqlAlchemyAnalyticsRepository,
     SqlAlchemyCollectionRunRepository,
@@ -82,6 +85,8 @@ from app.repositories.sqlalchemy import (
     SqlAlchemyNarrativeRepository,
     SqlAlchemyProjectRepository,
     SqlAlchemyQuerySetRepository,
+    SqlAlchemyReportRepository,
+    SqlAlchemyVisualizationRepository,
 )
 from app.schemas.common import (
     AnalysisPeriodSchema,
@@ -96,12 +101,24 @@ from app.schemas.narrative import (
 )
 from app.schemas.project import ProjectCreate
 from app.schemas.query import SearchQuery
+from app.schemas.visualization import VisualizationOutputSchema
+from app.visualization.service import (
+    CHANNEL_DONUT_SLOT,
+    TOP10_KEYWORDS_SLOT,
+    VisualizationRenderError,
+    VisualizationRenderService,
+)
 from app.workflows.evidence_to_issues import EvidenceToIssuesWorkflow
 from app.workflows.issues_to_analytics import IssuesToAnalyticsWorkflow
 from app.workflows.multi_query_collection_to_evidence import (
     CollectionRequest,
     MultiQueryCollectionToEvidenceWorkflow,
 )
+
+VISUALIZATION_SLOTS = {
+    CHANNEL_DONUT_SLOT: "채널 비중 도넛 (VIS-02)",
+    TOP10_KEYWORDS_SLOT: "TOP10 키워드 카드 (VIS-07)",
+}
 
 # label -> settings credential key used to build the real collector.
 IMPLEMENTED_PROVIDERS = ["naver", "daum", "youtube", "google", "community"]
@@ -143,16 +160,10 @@ _WORKFLOW_STATE_ORDER = [
 def _state_at_least(current: WorkflowState, target: WorkflowState) -> bool:
     return _WORKFLOW_STATE_ORDER.index(current) >= _WORKFLOW_STATE_ORDER.index(target)
 NOT_IMPLEMENTED_PAGES = {
-    "시각 자료 편집·승인": (
-        "M0에서 Visualization 계약을 결정하기 전까지 구현하지 않는다. "
-        "`app/schemas/visualization.py`는 아직 빈 contract다."
-    ),
-    "보고서 미리보기": (
-        "Report bundle 계약(M0)과 승인 게이트가 결정되지 않아 조립할 대상이 없다."
-    ),
     "출력·이력": (
-        "python-hwpx 연결, 2.0 DOCX/Markdown writer, 승인 게이트가 모두 M5/M6 "
-        "예정 작업이라 아직 출력할 수 없다."
+        "python-hwpx 연결, 2.0 DOCX/Markdown writer가 M5/M6 예정 작업이라 아직 "
+        "출력할 수 없다. Visualization/Report 승인 계약 자체는 "
+        "docs/aiporg2/visualization-design.md(2026-10-18)에서 결정·구현됐다."
     ),
 }
 
@@ -872,13 +883,29 @@ def page_narrative(factory: sessionmaker) -> None:
 
     st.divider()
     st.subheader("승인")
-    st.button("최종 승인", disabled=True)
+    is_latest_version = view_index == 0
+    if viewing.approved:
+        st.success(f"이 버전은 승인됨 ({viewing.approved_at.isoformat()}).")
+        if is_latest_version and st.button("승인 취소", key="unapprove-narrative"):
+            with session_scope(factory) as session:
+                SqlAlchemyNarrativeRepository(session).approve_output(
+                    project_id, viewing.run.run_id, False, None
+                )
+            st.rerun()
+    else:
+        if not is_latest_version:
+            st.caption("승인은 최신 버전에서만 가능하다 — 최신 버전을 선택하라.")
+        if st.button("이 버전 승인", key="approve-narrative", disabled=not is_latest_version):
+            with session_scope(factory) as session:
+                SqlAlchemyNarrativeRepository(session).approve_output(
+                    project_id, viewing.run.run_id, True, datetime.now(timezone.utc)
+                )
+            st.success("승인됨.")
+            st.rerun()
     st.caption(
-        "승인은 narrative 버전 하나만으로 확정하지 않는다 — Visualization/"
-        "Report 계약(M0, 아직 결정 전)에서 narrative 버전 + analytics_run_id + "
-        "시각 자료 버전 + 템플릿 버전을 함께 묶어 처리하기로 설계돼 있다"
-        "(`docs/aiporg2/narrative-design.md`). 그 계약이 없어 지금은 버튼만 "
-        "두고 비활성화했다 — 가짜로 승인 상태를 저장하지 않는다."
+        "narrative 승인만으로 최종 보고서가 완성되지 않는다 — '7. 보고서 "
+        "미리보기'에서 시각 자료 승인까지 모두 확인한 뒤 최종 승인한다"
+        "(docs/aiporg2/visualization-design.md)."
     )
 
     if len(outputs) >= 2:
@@ -896,6 +923,265 @@ def page_narrative(factory: sessionmaker) -> None:
             _render_narrative_sentences(outputs[index_a])
         with col_b:
             _render_narrative_sentences(outputs[index_b])
+
+
+def _visualization_version_label(output: VisualizationOutputSchema) -> str:
+    status = "승인됨" if output.approved else "미승인"
+    return f"{output.run.output_version} · {output.run.created_at.isoformat()} · {status}"
+
+
+def _render_visualization_items(output: VisualizationOutputSchema) -> None:
+    st.caption(output.title)
+    rows = [
+        {
+            "포함": item.included,
+            "순서": item.order,
+            "라벨": item.label,
+            "값": item.value,
+            "분류": item.category or "",
+            "색상": item.color or "",
+            "근거 경로": item.analytics_path,
+        }
+        for item in sorted(output.items, key=lambda i: i.order)
+    ]
+    st.dataframe(rows, use_container_width=True)
+    chart_data = {item.label: item.value for item in output.items if item.included}
+    if chart_data:
+        st.bar_chart(chart_data)
+
+
+def _render_visualization_slot(
+    factory: sessionmaker, project_id: UUID, slot_key: str
+) -> None:
+    with session_scope(factory) as session:
+        outputs = SqlAlchemyVisualizationRepository(session).list_outputs(project_id, slot_key)
+
+    if st.button(
+        "재생성" if outputs else "생성", key=f"generate-{slot_key}"
+    ):
+        with session_scope(factory) as session:
+            analytics = SqlAlchemyAnalyticsRepository(session).get_latest(project_id)
+            if analytics is None:
+                st.error("통계 집계 결과가 없다. '4. 통계·이슈 검토'에서 먼저 집계하라.")
+                return
+            run = VersionedRunSchema(
+                run_id=uuid4(),
+                input_version=f"analytics:{analytics.run.output_version}",
+                output_version=f"v{len(outputs) + 1}",
+                created_at=datetime.now(timezone.utc),
+            )
+            render_service = VisualizationRenderService()
+            try:
+                if slot_key == CHANNEL_DONUT_SLOT:
+                    output = render_service.render_channel_donut(project_id, run, analytics)
+                else:
+                    output = render_service.render_top10_keywords(project_id, run, analytics)
+            except VisualizationRenderError as exc:
+                st.error(f"생성 실패: {exc}")
+                return
+            SqlAlchemyVisualizationRepository(session).save_output(project_id, output)
+        st.success("생성됨.")
+        st.rerun()
+
+    if not outputs:
+        st.info("아직 생성된 버전이 없다.")
+        return
+
+    labels = [_visualization_version_label(output) for output in outputs]
+    view_index = st.selectbox(
+        "버전 선택", options=range(len(outputs)), format_func=lambda i: labels[i],
+        key=f"select-{slot_key}",
+    )
+    viewing = outputs[view_index]
+    _render_visualization_items(viewing)
+    is_latest_version = view_index == 0
+
+    with st.form(f"edit-{slot_key}"):
+        st.caption(
+            "값은 AnalyticsSnapshot 집계값 그대로이며 여기서 바꿀 수 없다. "
+            "라벨·분류·색상·순서·표시 여부만 수정 가능하다."
+        )
+        new_title = st.text_input("제목", value=viewing.title, key=f"title-{slot_key}-{view_index}")
+        edited_items = []
+        for i, item in enumerate(sorted(viewing.items, key=lambda x: x.order)):
+            cols = st.columns([3, 2, 2, 1, 1])
+            label = cols[0].text_input(
+                "라벨", value=item.label, key=f"label-{slot_key}-{view_index}-{i}"
+            )
+            category = cols[1].text_input(
+                "분류", value=item.category or "", key=f"cat-{slot_key}-{view_index}-{i}"
+            )
+            color = cols[2].text_input(
+                "색상", value=item.color or "", key=f"color-{slot_key}-{view_index}-{i}"
+            )
+            order = cols[3].number_input(
+                "순서", value=item.order, step=1, key=f"order-{slot_key}-{view_index}-{i}"
+            )
+            included = cols[4].checkbox(
+                "표시", value=item.included, key=f"incl-{slot_key}-{view_index}-{i}"
+            )
+            edited_items.append(item.model_copy(update={
+                "label": label,
+                "category": category or None,
+                "color": color or None,
+                "order": int(order),
+                "included": included,
+            }))
+        save_edit = st.form_submit_button("수정 저장 (새 버전)")
+
+    if save_edit:
+        edited = viewing.model_copy(update={
+            "run": VersionedRunSchema(
+                run_id=uuid4(),
+                input_version=viewing.run.output_version,
+                output_version=f"edited-from:{viewing.run.output_version}",
+                created_at=datetime.now(timezone.utc),
+            ),
+            "title": new_title,
+            "items": edited_items,
+            "approved": False,
+            "approved_at": None,
+        })
+        with session_scope(factory) as session:
+            SqlAlchemyVisualizationRepository(session).save_output(project_id, edited)
+        st.success("수정본이 새 버전으로 저장됐다 — 재검수 상태(미승인)로 시작한다.")
+        st.rerun()
+
+    st.divider()
+    if viewing.approved:
+        st.success(f"현재 버전 승인됨 ({viewing.approved_at.isoformat()}).")
+        if is_latest_version and st.button("승인 취소", key=f"unapprove-{slot_key}"):
+            with session_scope(factory) as session:
+                SqlAlchemyVisualizationRepository(session).approve_output(
+                    project_id, viewing.run.run_id, False, None
+                )
+            st.rerun()
+    else:
+        if not is_latest_version:
+            st.caption("승인은 최신 버전에서만 가능하다 — 최신 버전을 선택하라.")
+        if st.button("이 버전 승인", key=f"approve-{slot_key}", disabled=not is_latest_version):
+            with session_scope(factory) as session:
+                SqlAlchemyVisualizationRepository(session).approve_output(
+                    project_id, viewing.run.run_id, True, datetime.now(timezone.utc)
+                )
+            st.success("승인됨.")
+            st.rerun()
+
+    if len(outputs) >= 2:
+        st.divider()
+        st.subheader("버전 비교")
+        col_a, col_b = st.columns(2)
+        index_a = col_a.selectbox(
+            "버전 A", options=range(len(outputs)), format_func=lambda i: labels[i],
+            key=f"cmp-a-{slot_key}",
+        )
+        index_b = col_b.selectbox(
+            "버전 B", options=range(len(outputs)), format_func=lambda i: labels[i],
+            index=min(1, len(outputs) - 1), key=f"cmp-b-{slot_key}",
+        )
+        with col_a:
+            _render_visualization_items(outputs[index_a])
+        with col_b:
+            _render_visualization_items(outputs[index_b])
+
+
+def page_visualization(factory: sessionmaker) -> None:
+    st.header("6. 시각 자료 편집·승인")
+    project_id_str = _require_active_project()
+    if project_id_str is None:
+        return
+    project_id = UUID(project_id_str)
+
+    with session_scope(factory) as session:
+        workflow = SqlAlchemyProjectRepository(session).get_workflow(project_id)
+    if workflow is None:
+        st.error("프로젝트를 찾지 못했다.")
+        return
+    if not _state_at_least(workflow.workflow_state, WorkflowState.ANALYTICS_COMPLETED):
+        st.info("통계 집계가 끝나야 시각 자료를 만들 수 있다. '4. 통계·이슈 검토'에서 먼저 실행하라.")
+        return
+
+    st.caption(
+        "VIS-02(채널 도넛)·VIS-07(TOP10 키워드) 2종만 먼저 연결했다(1차 최소 "
+        "단위, docs/aiporg2/visualization-design.md). 값은 AnalyticsSnapshot "
+        "집계값 그대로이며 UI에서 직접 숫자를 바꿀 수 없다."
+    )
+
+    tabs = st.tabs(list(VISUALIZATION_SLOTS.values()))
+    for (slot_key, _slot_title), tab in zip(VISUALIZATION_SLOTS.items(), tabs):
+        with tab:
+            _render_visualization_slot(factory, project_id, slot_key)
+
+
+def page_report(factory: sessionmaker) -> None:
+    st.header("7. 보고서 미리보기")
+    project_id_str = _require_active_project()
+    if project_id_str is None:
+        return
+    project_id = UUID(project_id_str)
+
+    with session_scope(factory) as session:
+        narrative_output = SqlAlchemyNarrativeRepository(session).get_latest_output(project_id)
+        visualization_repo = SqlAlchemyVisualizationRepository(session)
+        slot_outputs = {
+            slot_key: visualization_repo.get_latest_output(project_id, slot_key)
+            for slot_key in VISUALIZATION_SLOTS
+        }
+        latest_report = SqlAlchemyReportRepository(session).get_latest(project_id)
+
+    st.subheader("승인 상태")
+    rows = [{
+        "항목": "서술(narrative)",
+        "승인됨": bool(narrative_output and narrative_output.approved),
+    }]
+    for slot_key, title in VISUALIZATION_SLOTS.items():
+        output = slot_outputs[slot_key]
+        rows.append({"항목": title, "승인됨": bool(output and output.approved)})
+    st.dataframe(rows, use_container_width=True)
+
+    all_approved = all(row["승인됨"] for row in rows)
+    st.caption(
+        "포함된 모든 자료(narrative + 시각 자료 2종)의 현재 버전이 승인되어야 "
+        "최종 승인할 수 있다. '5. 서술 편집'·'6. 시각 자료 편집·승인'에서 미승인 "
+        "항목을 먼저 승인하라."
+    )
+    if st.button("최종 승인 (보고서 생성)", disabled=not all_approved):
+        report = None
+        missing: list[str] | None = None
+        with session_scope(factory) as session:
+            service = ReportApprovalService(
+                SqlAlchemyNarrativeRepository(session),
+                SqlAlchemyVisualizationRepository(session),
+                SqlAlchemyReportRepository(session),
+            )
+            try:
+                report = service.approve(project_id, now=datetime.now(timezone.utc))
+            except ReportApprovalError as exc:
+                missing = exc.missing
+        # st.rerun() raises internally to halt the script -- it must run
+        # after the `with` block above has already committed, or the
+        # commit never happens and session_scope's except-clause rolls
+        # back the just-created report instead.
+        if missing is not None:
+            st.error(f"최종 승인 실패 — 미승인 항목: {', '.join(missing)}")
+        else:
+            st.success(f"보고서 생성됨: `{report.report_id}`")
+            st.rerun()
+
+    if latest_report is not None:
+        st.divider()
+        st.subheader("가장 최근 승인본")
+        st.caption(
+            f"report_id: `{latest_report.report_id}` · "
+            f"생성: {latest_report.run.created_at.isoformat()} · "
+            f"포함된 시각 자료 {len(latest_report.visualizations)}건"
+        )
+        st.caption(
+            "현재 Report.context는 승인된 narrative 문장이 아니라 입력 "
+            "NarrativeContext를 그대로 담는다 — 알려진 범위 제한"
+            "(docs/aiporg2/visualization-design.md '알려진 범위 제한' 참고). "
+            "승인된 실제 문장은 '5. 서술 편집'에서 계속 조회할 수 있다."
+        )
 
 
 def page_not_implemented(title: str, reason: str) -> None:
@@ -936,6 +1222,10 @@ def main() -> None:
         page_analytics(factory)
     elif page == "5. 서술 편집 (LLM 초안)":
         page_narrative(factory)
+    elif page == "6. 시각 자료 편집·승인":
+        page_visualization(factory)
+    elif page == "7. 보고서 미리보기":
+        page_report(factory)
     else:
         title = page.split(". ", 1)[1]
         page_not_implemented(page, NOT_IMPLEMENTED_PAGES[title])

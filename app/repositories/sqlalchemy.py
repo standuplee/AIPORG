@@ -45,7 +45,12 @@ from app.schemas.narrative import (
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectWorkflowSnapshot
 from app.schemas.query import QueryId, SearchQuery
 from app.schemas.report import ReportRead, ReportSchema
-from app.schemas.visualization import VisualizationAssetRead, VisualizationAssetSchema
+from app.schemas.visualization import (
+    VisualizationAssetRead,
+    VisualizationAssetSchema,
+    VisualizationOutputRead,
+    VisualizationOutputSchema,
+)
 
 
 class RepositoryConflictError(ValueError):
@@ -688,6 +693,26 @@ class SqlAlchemyNarrativeRepository(_Repository):
         outputs.sort(key=lambda output: output.run.created_at, reverse=True)
         return outputs
 
+    def approve_output(
+        self,
+        project_id: ProjectId,
+        run_id: UUID,
+        approved: bool,
+        approved_at: datetime | None,
+    ) -> NarrativeOutputRead:
+        row = self.session.scalar(select(Narrative).where(
+            Narrative.project_id == project_id, Narrative.id == run_id
+        ))
+        if row is None or not self._is_output_row(row.context):
+            raise RepositoryConflictError("narrative output does not exist")
+        data = dict(row.context["data"])
+        data["approved"] = approved
+        data["approved_at"] = approved_at.isoformat() if approved_at is not None else None
+        output = NarrativeOutputSchema.model_validate(data)
+        row.context = {"kind": "narrative_output", "data": output.model_dump(mode="json")}
+        self._flush()
+        return output
+
     @staticmethod
     def _is_output_row(context: object) -> bool:
         return isinstance(context, dict) and context.get("kind") == "narrative_output"
@@ -719,7 +744,79 @@ class SqlAlchemyVisualizationRepository(_Repository):
             kind=row.kind,
             title=row.title,
             created_at=_aware(row.created_at),
-        ) for row in rows]
+        ) for row in rows if not self._is_output_row(row.payload)]
+
+    def save_output(
+        self, project_id: ProjectId, output: VisualizationOutputSchema
+    ) -> VisualizationOutputRead:
+        if output.project_id != project_id:
+            raise RepositoryConflictError("visualization output project_id does not match")
+        self.session.add(Visualization(
+            id=output.run.run_id,
+            project_id=project_id,
+            kind=output.kind,
+            title=output.title,
+            payload={"kind": "visualization_output", "data": output.model_dump(mode="json")},
+            run_id=output.run.run_id,
+            input_version=output.run.input_version,
+            output_version=output.run.output_version,
+        ))
+        self._flush()
+        return output
+
+    def get_latest_output(
+        self, project_id: ProjectId, slot_key: str
+    ) -> VisualizationOutputRead | None:
+        outputs = self._outputs_for_slot(project_id, slot_key)
+        if not outputs:
+            return None
+        return max(outputs, key=lambda output: output.run.created_at)
+
+    def list_outputs(
+        self, project_id: ProjectId, slot_key: str
+    ) -> list[VisualizationOutputRead]:
+        outputs = self._outputs_for_slot(project_id, slot_key)
+        outputs.sort(key=lambda output: output.run.created_at, reverse=True)
+        return outputs
+
+    def approve_output(
+        self,
+        project_id: ProjectId,
+        run_id: UUID,
+        approved: bool,
+        approved_at: datetime | None,
+    ) -> VisualizationOutputRead:
+        row = self.session.scalar(select(Visualization).where(
+            Visualization.project_id == project_id, Visualization.id == run_id
+        ))
+        if row is None or not self._is_output_row(row.payload):
+            raise RepositoryConflictError("visualization output does not exist")
+        data = dict(row.payload["data"])
+        data["approved"] = approved
+        data["approved_at"] = approved_at.isoformat() if approved_at is not None else None
+        output = VisualizationOutputSchema.model_validate(data)
+        row.payload = {"kind": "visualization_output", "data": output.model_dump(mode="json")}
+        self._flush()
+        return output
+
+    def _outputs_for_slot(
+        self, project_id: ProjectId, slot_key: str
+    ) -> list[VisualizationOutputSchema]:
+        rows = self.session.scalars(select(Visualization).where(
+            Visualization.project_id == project_id
+        )).all()
+        outputs = []
+        for row in rows:
+            if not self._is_output_row(row.payload):
+                continue
+            output = VisualizationOutputSchema.model_validate(row.payload["data"])
+            if output.slot_key == slot_key:
+                outputs.append(output)
+        return outputs
+
+    @staticmethod
+    def _is_output_row(payload: object) -> bool:
+        return isinstance(payload, dict) and payload.get("kind") == "visualization_output"
 
 
 class SqlAlchemyReportRepository(_Repository):
