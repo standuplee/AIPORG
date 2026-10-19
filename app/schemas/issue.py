@@ -3,7 +3,7 @@
 from typing import Annotated, TypeAlias
 from uuid import UUID
 
-from app.core.enums import SentimentLabel
+from app.core.enums import SentimentLabel, StanceLabel
 from app.schemas.common import SchemaBase
 from app.schemas.fact import FactId
 from pydantic import Field
@@ -26,6 +26,7 @@ class IssueDetailSchema(SchemaBase):
     policy: str
     summary: str
     sentiment: SentimentLabel
+    stance: StanceLabel
 
 
 class IssueSchema(IssueCandidateSchema):

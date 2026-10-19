@@ -8,7 +8,7 @@ from hwpx import TextExtractor
 from hwpx.tools.package_validator import validate_editor_open_safety
 from hwpx.tools.validator import validate_document
 
-from app.core.enums import ConfidenceGrade, FactStatus, SentimentLabel
+from app.core.enums import ConfidenceGrade, FactStatus, SentimentLabel, StanceLabel
 from app.report.hwpx_writer import HwpxPrototypeError, build_cover_toc_summary
 from app.schemas.common import VersionedRunSchema
 from app.schemas.fact import FactSchema
@@ -35,6 +35,7 @@ def _narrative_context() -> NarrativeContext:
         document_count=1, source_count=1, channel_count=1,
         subissues=[IssueDetailSchema(
             label="정책", policy="이전 발표", summary="요약", sentiment=SentimentLabel.POSITIVE,
+            stance=StanceLabel.NOT_APPLICABLE,
         )],
     )
     return NarrativeContext(

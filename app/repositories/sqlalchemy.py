@@ -589,6 +589,7 @@ class SqlAlchemyIssueRepository(_Repository):
                 policy=item.policy,
                 summary=item.summary,
                 sentiment=item.sentiment,
+                stance=item.stance,
             ) for item in details],
         )
 

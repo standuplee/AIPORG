@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.core.enums import ConfidenceGrade, FactStatus, SentimentLabel
+from app.core.enums import ConfidenceGrade, FactStatus, SentimentLabel, StanceLabel
 from app.narrative.llm_adapter import GeminiNarrativeAdapter, NarrativeGenerationError
 from app.schemas.analytics import AnalyticsSnapshotSchema
 from app.schemas.common import VersionedRunSchema
@@ -58,7 +58,7 @@ def _context_and_inputs():
         subissues=[
             IssueDetailSchema(
                 label="재정", policy="재정전략회의 개최", summary="회의 개최 확인됨",
-                sentiment=SentimentLabel.NEUTRAL,
+                sentiment=SentimentLabel.NEUTRAL, stance=StanceLabel.NOT_APPLICABLE,
             )
         ],
     )

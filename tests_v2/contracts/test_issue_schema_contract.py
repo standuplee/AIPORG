@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.core.enums import SentimentLabel
+from app.core.enums import SentimentLabel, StanceLabel
 from app.schemas.issue import IssueCandidateSchema, IssueSchema
 
 
@@ -24,6 +24,7 @@ def issue_detail_payload() -> dict[str, object]:
         "policy": "Strengthen cost-of-living support.",
         "summary": "Residents cited higher household expenses.",
         "sentiment": "negative",
+        "stance": "not_applicable",
     }
 
 
@@ -64,11 +65,13 @@ def test_issue_schema_uses_strict_issue_detail_subissues() -> None:
 
     assert len(issue.subissues) == 5
     assert issue.subissues[0].sentiment is SentimentLabel.NEGATIVE
+    assert issue.subissues[0].stance is StanceLabel.NOT_APPLICABLE
     assert set(type(issue.subissues[0]).model_fields) == {
         "label",
         "policy",
         "summary",
         "sentiment",
+        "stance",
     }
 
 

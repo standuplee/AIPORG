@@ -44,6 +44,22 @@ class SentimentLabel(str, Enum):
     MIXED = "mixed"
 
 
+class StanceLabel(str, Enum):
+    """Policy agree/disagree -- a separate axis from SentimentLabel's
+    general positive/negative tone (requirements doc §4.3: "정책 찬반과
+    일반 감성도 별도 개념으로 다룬다"). Praising how a policy was delivered
+    is positive *sentiment*; opposing the policy itself is a *stance* --
+    the two can disagree (e.g. praising the rollout of a policy you oppose).
+    NOT_APPLICABLE covers issues with no for/against axis at all (e.g. a
+    disaster event)."""
+
+    SUPPORT = "support"
+    OPPOSE = "oppose"
+    NEUTRAL = "neutral"
+    MIXED = "mixed"
+    NOT_APPLICABLE = "not_applicable"
+
+
 class ConfidenceGrade(str, Enum):
     A = "A"
     B = "B"

@@ -61,7 +61,6 @@ from app.core.enums import (
     ChannelType,
     CollectionRunStatus,
     FactStatus,
-    SentimentLabel,
     WorkflowState,
 )
 from app.core.state_machine import InvalidStateTransitionError
@@ -74,6 +73,7 @@ from app.issues.discovery import IssueDiscoveryService
 from app.issues.finalization import IssueFinalizationService
 from app.models.project import Query
 from app.narrative.llm_adapter import GeminiNarrativeAdapter, NarrativeGenerationError
+from app.narrative.reasons import aggregate_issue_sentiment, derive_narrative_reasons
 from app.narrative.template import TemplateNarrativeService
 from app.report.approval import ReportApprovalError, ReportApprovalService
 from app.report.hwpx_writer import HwpxPrototypeError, build_cover_toc_summary
@@ -629,6 +629,7 @@ def page_analytics(factory: sessionmaker) -> None:
                 "출처 수": issue.source_count,
                 "채널 수": issue.channel_count,
                 "세부 감성": ", ".join(sorted({s.sentiment.value for s in issue.subissues})),
+                "세부 입장": ", ".join(sorted({s.stance.value for s in issue.subissues})),
             }
             for issue in issues
         ],
@@ -770,16 +771,14 @@ def page_narrative(factory: sessionmaker) -> None:
                 st.error("통계 집계 결과가 없다.")
                 return
 
-            sentiment = (
-                issue.subissues[0].sentiment if issue.subissues else SentimentLabel.NEUTRAL
-            )
+            positive_reasons, negative_reasons = derive_narrative_reasons(issue)
             context = NarrativeContext(
                 issue=issue,
                 facts=facts,
-                sentiment=sentiment,
+                sentiment=aggregate_issue_sentiment(issue),
                 keywords=[issue.label],
-                positive_reasons=[],
-                negative_reasons=[],
+                positive_reasons=positive_reasons,
+                negative_reasons=negative_reasons,
             )
 
             if settings.gemini_api_key:

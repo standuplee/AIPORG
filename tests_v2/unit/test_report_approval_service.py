@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.core.enums import ChannelType, ConfidenceGrade, FactStatus, SentimentLabel
+from app.core.enums import ChannelType, ConfidenceGrade, FactStatus, SentimentLabel, StanceLabel
 from app.db.session import session_scope
 from app.models import Base
 from app.report.approval import ReportApprovalError, ReportApprovalService
@@ -60,7 +60,7 @@ def _issue(fact_id) -> IssueSchema:
         document_count=0, source_count=0, channel_count=0,
         subissues=[IssueDetailSchema(
             label="정책", policy="정책 발표", summary="근거 본문 요약",
-            sentiment=SentimentLabel.NEUTRAL,
+            sentiment=SentimentLabel.NEUTRAL, stance=StanceLabel.NOT_APPLICABLE,
         )],
     )
 

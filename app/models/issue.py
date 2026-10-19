@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import Enum, ForeignKey, ForeignKeyConstraint, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.enums import SentimentLabel
+from app.core.enums import SentimentLabel, StanceLabel
 from app.models.base import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
 
 
@@ -63,4 +63,7 @@ class IssueSubissue(Base):
     summary: Mapped[str] = mapped_column(String, nullable=False)
     sentiment: Mapped[SentimentLabel] = mapped_column(
         Enum(SentimentLabel, name="sentiment_label"), nullable=False
+    )
+    stance: Mapped[StanceLabel] = mapped_column(
+        Enum(StanceLabel, name="stance_label"), nullable=False
     )

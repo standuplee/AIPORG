@@ -11,6 +11,7 @@ from app.core.enums import (
     ConfidenceGrade,
     FactStatus,
     SentimentLabel,
+    StanceLabel,
     WorkflowState,
 )
 from app.core.state_machine import InvalidStateTransitionError
@@ -227,7 +228,7 @@ def test_downstream_repositories_round_trip_fixed_contracts() -> None:
             document_count=1, source_count=1, channel_count=1,
             subissues=[IssueDetailSchema(
                 label="정책", policy="정책 발표", summary="근거 본문 요약",
-                sentiment=SentimentLabel.NEUTRAL,
+                sentiment=SentimentLabel.NEUTRAL, stance=StanceLabel.NOT_APPLICABLE,
             )],
         )
         issue_repo = SqlAlchemyIssueRepository(session)

@@ -87,6 +87,7 @@ def issue_detail_payload() -> dict[str, object]:
         "policy": "Strengthen cost-of-living support.",
         "summary": "Residents cited higher household expenses.",
         "sentiment": "negative",
+        "stance": "not_applicable",
     }
 
 
