@@ -19,6 +19,11 @@ lxml==6.1.1
 # 최장 일치가 아니라 파일 순서로 잘못 판정하는 버그가 있어 교체함
 # (app/collectors/community/robots.py 에서 라이브로 확인·정정).
 protego==0.7.0
+# naver/daum/google collector의 기사 본문 추출(main-content extraction).
+# 실데이터 테스트(2026-10-19, HANDOFF.md 18차)에서 기존 whole-page 추출이
+# 내비게이션/메뉴 텍스트를 기사 본문으로 섞어 넣는 문제를 발견해 교체함
+# (app/collectors/content_extraction.py).
+trafilatura==2.3.1
 
 # HWPX 출력 (2.0, 시제품 — docs/aiporg2/visualization-design.md 16차).
 # upstream python-hwpx(https://github.com/airmang/python-hwpx)를 그대로 쓴다.

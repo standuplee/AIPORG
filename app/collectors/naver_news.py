@@ -38,12 +38,12 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from html import unescape
-from html.parser import HTMLParser
 from typing import Protocol
 from urllib.parse import parse_qs, urlencode, urlsplit
 from uuid import NAMESPACE_URL, uuid5
 
 from app.collectors.base import BaseCollector
+from app.collectors.content_extraction import extract_article_text
 from app.collectors.errors import CollectorError
 from app.collectors.transport import HttpResponse, RequestsTransport
 from app.core.enums import ChannelType
@@ -65,33 +65,6 @@ class _Transport(Protocol):
         headers: Mapping[str, str] | None = None,
     ) -> HttpResponse:
         ...
-
-
-class _TextExtractor(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.parts: list[str] = []
-        self._ignored_depth = 0
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in {"script", "style", "noscript", "template"}:
-            self._ignored_depth += 1
-        elif tag in {"br", "p", "div", "li", "tr", "h1", "h2", "h3", "section"}:
-            self.parts.append(" ")
-
-    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag == "br":
-            self.parts.append(" ")
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in {"script", "style", "noscript", "template"} and self._ignored_depth:
-            self._ignored_depth -= 1
-        elif tag in {"p", "div", "li", "tr", "h1", "h2", "h3", "section"}:
-            self.parts.append(" ")
-
-    def handle_data(self, data: str) -> None:
-        if not self._ignored_depth:
-            self.parts.append(data)
 
 
 class NaverNewsCollector(BaseCollector):
@@ -446,10 +419,7 @@ class NaverNewsCollector(BaseCollector):
 
     @staticmethod
     def _clean_body(value: str) -> str:
-        parser = _TextExtractor()
-        parser.feed(value)
-        parser.close()
-        return re.sub(r"\s+", " ", unescape("".join(parser.parts))).strip()
+        return extract_article_text(value)
 
     @staticmethod
     def _parse_date(value: object) -> datetime:

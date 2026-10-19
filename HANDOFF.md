@@ -1152,18 +1152,70 @@ community collector도 각자 비슷한 패턴(전체 페이지 텍스트 vs 본
 
 ### 다음 행동 (우선순위 순)
 
-1. **naver_news.py(및 다른 collector들) 본문 추출을 "페이지 전체 텍스트"에서
-   "실제 기사 본문 영역"으로 좁힌다** — 발견 1. community collector가 14차에서
-   이미 사이트별 전용 셀렉터를 쓰고 있으니 그 패턴을 참고할 수 있다. 이 수정
-   없이는 실데이터 기반 Fact/Issue/키워드 결과를 신뢰하기 어렵다.
+1. ~~naver_news.py(및 다른 collector들) 본문 추출을 "페이지 전체 텍스트"에서
+   "실제 기사 본문 영역"으로 좁힌다~~ — **해결됨(18차, 바로 다음 절).**
 2. Gemini 404 원인 확인 — 모델명 확정 또는 사용 가능한 모델 목록 조회.
 3. 이슈 그룹화를 키워드 인지형으로 보완할지 결정(M2) — 발견 2.
-4. (선택) daum/youtube/community collector의 본문 추출도 같은 문제가 있는지
-   코드로 재확인(naver만 이번에 직접 확인함).
 
 이번 라운드는 **의도적으로 코드를 고치지 않았다** — 사용자가 "테스트 한 번
 돌려봐"라고 요청했을 뿐이라, 발견한 문제를 바로 고치는 대신 결과와 원인을
 보고하고 우선순위만 기록했다.
+
+## 이번 작업과 검증 (2026-10-19, 18차: collector 본문 추출 수정 — 발견 1 해결)
+
+17차에서 찾은 "우선순위 1번"(collector가 기사 본문이 아니라 페이지 전체
+텍스트를 가져온다)을 사용자가 "이 부분 수정하자"로 승인해 바로 고쳤다.
+
+- **원인 재확인**: `naver_news.py`뿐 아니라 **`daum_news.py`·
+  `google_search.py` 셋 다 똑같은 `_TextExtractor(HTMLParser)` 클래스를
+  거의 그대로 복사해서 쓰고 있었다** — `<script>/<style>/<noscript>/
+  <template>`만 건너뛰고 `<nav>`/`<header>`/`<footer>`/관련기사 위젯은
+  전혀 거르지 않는, 셋이 공유하는 동일한 결함. 17차는 naver만 코드로
+  확인했었는데, 이번에 나머지 둘도 같은 복사-붙여넣기 버그를 갖고 있다는
+  걸 확인했다.
+- **해결책**: 직접 셀렉터 블록리스트를 손으로 짜는 대신(사이트마다 구조가
+  다 달라서 일반화가 어려움 — naver/daum/google은 community collector와
+  달리 특정 몇 개 사이트가 아니라 임의의 외부 퍼블리셔 페이지를 가져오기
+  때문에 사이트별 전용 셀렉터 방식 자체가 안 맞음), 뉴스 사이트 본문
+  추출에 특화된 성숙한 라이브러리 `trafilatura`(PyPI, `requirements.txt`에
+  `trafilatura==2.3.1` 고정)를 새로 연결했다. 신규
+  `app/collectors/content_extraction.py::extract_article_text()`가
+  trafilatura로 먼저 시도하고, trafilatura가 "기사 형태를 못 찾겠다"며
+  `None`을 반환하는 경우(너무 작거나 비정형적인 페이지)에만 기존 whole-page
+  추출(이름을 `_LegacyWholePageExtractor`로 바꿔서 그대로 보존)로
+  대체한다 — 실패를 에러로 올리지 않고 조용히 성능이 낮은 경로로
+  내려가게 함.
+- `naver_news.py`/`daum_news.py`/`google_search.py` 셋 다 각자의
+  `_TextExtractor` 클래스를 지우고 `_clean_body()`가 이 공용 함수를
+  호출하도록 바꿨다 — 중복 제거 + 세 곳 동시 수정.
+- **독자 댓글은 trafilatura에서 명시적으로 제외했다**(`include_comments=False`)
+  — 댓글은 이미 별도 `RawDocument`(`document_type="comment"`)로 수집하는
+  기존 컨벤션(12·13차)이 있어서, 기사 본문에 사이트 자체 댓글 위젯 텍스트가
+  다시 섞여 들어가면 중복이 된다.
+- **기존 unit test 3개(naver/daum/google 각 1개, "첫 문장 둘째 & 셋째"
+  고정 fixture)를 바꾸지 않고 그대로 통과시켰다** — trafilatura가 이렇게
+  작은 테스트 fixture에서는 보통 `None`을 반환해 레거시 경로로 떨어질
+  것이라 예상했는데, 실제로 테스트해보니 trafilatura가 `\n` 구분자로
+  텍스트를 반환했고(레거시 경로가 전혀 아님) 이후 공통 공백 정규화
+  (`\s+` → 단일 스페이스)를 거치면서 우연히 기존 기대값과 정확히 일치했다
+  — 바꾸기 전에 직접 실행해서 확인하고 진행했다(추측으로 넘어가지 않음).
+- **라이브 검증**: 17차 때 문제가 됐던 실제 네이버 기사 URL
+  (`n.news.naver.com/mnews/article/047/0002532680`)을 `NaverNewsCollector.
+  _clean_body()`로 다시 통과시켜 "바로가기"/"닫기" 같은 메뉴 텍스트가
+  사라지고 실제 기사 본문(서산 방문, 박수현 지사 발언 등)만 남는 것을
+  직접 확인했다. 또한 nav/header/footer/관련기사위젯이 섞인 합성 HTML로
+  trafilatura가 실제로 그 영역들을 걸러내는지, 레거시 fallback이 trafilatura
+  실패 시(`trafilatura.extract`를 mock으로 `None` 강제) 제대로 동작하는지도
+  unit test로 고정했다(`tests_v2/unit/test_content_extraction.py`, 4개).
+- `tests_v2`+`tests` **373 passed**(369 + 4). 기존 collector 테스트는 한
+  줄도 안 바꿨다.
+- **이번 수정 범위 밖(다음 행동으로 남김)**: youtube collector는 API
+  JSON 응답(제목+설명)만 쓰고 임의 HTML 페이지를 파싱하지 않아 이 문제와
+  무관함(재확인 완료, 수정 불필요). community collector는 14차부터
+  사이트별 전용 파서를 쓰고 있어 원래도 이 문제가 없었다(재확인 완료).
+  17차의 발견 2(이슈 그룹화가 키워드가 아니라 고정 3용어 기준)와 발견
+  3(Gemini 404)은 이번 라운드에서 건드리지 않았다 — 이번은 발견 1만
+  범위로 한정해 진행했다.
 
 ## 기능 완료 시 커밋·푸시 규칙
 - 기능 단위의 구현과 필요한 테스트가 완료되면 `HANDOFF.md`를 최신 상태로 갱신한 뒤 해당 기능의 변경만 선별하여 커밋하고 원격 브랜치에 푸시한다.
