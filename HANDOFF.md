@@ -142,12 +142,15 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 - **LLM은 API 직접 연결, 키는 추후 제공.** CLI 구독이 아니라 API 호출로 확정.
   키가 없을 때 adapter는 기존 template 서비스로 자동 fallback해야 한다. provider를
   설정값으로 선택 가능하게 구현.
-- **LLM provider: Gemini, 모델은 `gemini-2.0-flash`(8차 결정).** 무료 티어
-  할당량이 2.5-pro보다 훨씬 넉넉해서 "무료 한도 내에서" 요구에 맞는 쪽을
-  추천안으로 제시했고 사용자가 채택했다. `app/narrative/llm_adapter.py`의
-  `GeminiNarrativeAdapter(model=...)`로 다른 Gemini 모델로 바꿀 수 있다.
-  GPT/Claude는 당장 쓰지 않지만 provider를 어댑터 교체로 바꿀 수 있는 구조는
-  유지했다(narrative 계층에만 LLM 호출이 있고 collector/analyzer는 안 건드림).
+- **LLM provider: Gemini, 모델은 `gemini-2.5-flash`(8차 결정, 19차에서
+  `gemini-2.0-flash`가 API에서 폐기되어 교체).** 무료 티어 할당량이
+  2.5-pro보다 훨씬 넉넉해서 "무료 한도 내에서" 요구에 맞는 쪽을 추천안으로
+  제시했고 사용자가 채택했다(flash 계열이라는 선택 기준 자체는 유지,
+  19차는 그 계열 안에서 실제로 동작하는 버전으로만 교체). `app/narrative/
+  llm_adapter.py`의 `GeminiNarrativeAdapter(model=...)`로 다른 Gemini
+  모델로 바꿀 수 있다. GPT/Claude는 당장 쓰지 않지만 provider를 어댑터
+  교체로 바꿀 수 있는 구조는 유지했다(narrative 계층에만 LLM 호출이 있고
+  collector/analyzer는 안 건드림).
 - **X·인스타그램 제외, 구글 포함.** X·인스타그램은 유료 접근으로 판단해 1차
   범위에서 완전히 뺀다. 구글은 범위에 포함, 수집기는 11차에서 구현 완료
   (`app/collectors/google_search.py`, 공식 Custom Search JSON API).
@@ -1216,6 +1219,30 @@ community collector도 각자 비슷한 패턴(전체 페이지 텍스트 vs 본
   17차의 발견 2(이슈 그룹화가 키워드가 아니라 고정 3용어 기준)와 발견
   3(Gemini 404)은 이번 라운드에서 건드리지 않았다 — 이번은 발견 1만
   범위로 한정해 진행했다.
+
+## 이번 작업과 검증 (2026-10-19, 19차: Gemini 404 원인 확인 + 모델 교체 — 발견 3 해결)
+
+17차 발견 3(모든 Gemini 호출이 404)을 조사했다. 실제 `.env`의 Gemini 키로
+`GET https://generativelanguage.googleapis.com/v1beta/models`를 라이브로
+호출해 확인한 결과 **`gemini-2.0-flash`가 이 API의 사용 가능한 모델 목록에
+더 이상 없다**(8차에 결정했던 모델이 그 사이 폐기/교체됨 — Google 쪽
+변경이라 이 저장소의 과거 결정이 틀렸던 게 아니라 외부 서비스가 바뀐
+것). 같은 키로 `gemini-2.5-flash:generateContent`를 직접 호출해 200 OK와
+정상 응답을 라이브로 확인한 뒤 기본 모델을 교체했다 — "무료 티어가
+2.5-pro보다 넉넉함"이라는 8차의 원래 선택 기준(pro가 아니라 flash 계열)은
+그대로 유지하고, 그 계열 안에서 지금 실제로 동작하는 버전으로만 바꿨다.
+`gemini-flash-latest`(항상 최신 flash를 가리키는 별칭)도 목록에 있었지만,
+코드 변경 없이 동작이 바뀔 수 있어(예측 불가능한 회귀 위험) 명시적 버전
+고정(`gemini-2.5-flash`)을 택했다.
+
+- 변경: `app/narrative/llm_adapter.py`(`GeminiNarrativeAdapter.__init__`의
+  `model` 기본값), `.env.example`, `streamlit_app/console.py`의 안내 문구.
+  `tests_v2/unit/test_gemini_narrative_adapter.py`의 기본값 검증 테스트
+  1개를 새 모델명에 맞게 고쳤다(다른 테스트는 `model=`을 직접 지정하므로
+  영향 없음).
+- `tests_v2`+`tests` **373 passed** 유지(테스트 1개 수정, 개수 변화 없음).
+- 다음 행동: 17차 발견 2(이슈 그룹화가 키워드가 아니라 고정 3용어 기준)만
+  남았다.
 
 ## 기능 완료 시 커밋·푸시 규칙
 - 기능 단위의 구현과 필요한 테스트가 완료되면 `HANDOFF.md`를 최신 상태로 갱신한 뒤 해당 기능의 변경만 선별하여 커밋하고 원격 브랜치에 푸시한다.

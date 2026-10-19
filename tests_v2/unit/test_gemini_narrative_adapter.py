@@ -111,7 +111,7 @@ def test_generate_keeps_grounded_sentences_and_drops_ungrounded_ones() -> None:
     assert len(output.sentences) == 1
     assert output.sentences[0].fact_ids == [fact_id]
     assert output.generation.provider == "gemini"
-    assert output.generation.model == "gemini-2.0-flash"
+    assert output.generation.model == "gemini-2.5-flash"
     assert output.analytics_run_id == analytics.run.run_id
 
     call = transport.calls[0]

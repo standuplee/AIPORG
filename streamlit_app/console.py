@@ -731,7 +731,7 @@ def page_narrative(factory: sessionmaker) -> None:
     settings = get_settings()
     if settings.gemini_api_key:
         st.caption(
-            "Gemini(`gemini-2.0-flash`)로 초안을 생성한다. 모델이 인용한 fact/"
+            "Gemini(`gemini-2.5-flash`)로 초안을 생성한다. 모델이 인용한 fact/"
             "evidence/document id와 analytics 경로는 실제 입력과 대조해서, 근거 "
             "없는 문장은 자동으로 버린다(`app/narrative/llm_adapter.py`)."
         )

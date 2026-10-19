@@ -166,7 +166,7 @@ class GeminiNarrativeAdapter:
         self,
         *,
         api_key: str,
-        model: str = "gemini-2.0-flash",
+        model: str = "gemini-2.5-flash",
         transport: _Transport | None = None,
         now_fn=None,
     ) -> None:
