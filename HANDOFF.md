@@ -1361,14 +1361,82 @@ collector 수정(18차)으로 사이트 메뉴 텍스트는 사라졌지만, TOP
   `tests_v2/unit/test_analytics_service.py`. `app/visualization/service.py`는
   건드리지 않았다(입력이 바뀌었을 뿐 VIS-02/07 렌더링 로직은 그대로).
 
-### 사용자가 결정할 사항(신규)
+### ~~사용자가 결정할 사항(신규)~~ — 둘 다 사용자가 "이어서 처리"로 승인해 해결함(아래 절)
 
-- `documents.id`가 project 범위가 아니라 테이블 전체에서 유일해야 하는
-  설계를 유지할지, project 범위로 바꿀지(마이그레이션 필요) — 같은 URL을
-  다른 달 프로젝트가 재수집할 가능성이 있는 한 잠재적 운영 문제로 남는다.
-- (18차에서 보고된) 약 0.4%(4110건 중 15건) 문서의 텍스트 인코딩 깨짐
-  (`app/collectors/transport.py`가 `requests.text`의 자동 인코딩 감지에만
-  의존) — 아직 미해결, 규모가 작아 우선순위 낮음으로 보류 중.
+## 2026-10-19 22차: 텍스트 인코딩 복구 + documents.id 프로젝트 범위 지정
+
+사용자가 "ㅇㅇ 이어서 처리"로 21차 끝에 남겨둔 미해결 사항 2개(인코딩 깨짐,
+documents.id 충돌 가능성)를 모두 승인해 처리했다.
+
+### 텍스트 인코딩 복구 (`app/collectors/transport.py`)
+
+- **원인**: `requests`의 `response.text`는 HTTP `Content-Type` 헤더의
+  charset만 신뢰하고(없으면 `text/*`에 RFC 기본값인 ISO-8859-1 적용),
+  페이지 자체의 `<meta charset>` 선언은 전혀 보지 않는다. 일부 한국 뉴스
+  사이트가 HTTP 헤더에 charset을 안 넣고 HTML 메타태그로만 선언해서 생긴
+  문제(18차에서 4110건 중 15건, 약 0.4%로 보고된 것).
+- **해결**: 이미 의존성에 있는 `beautifulsoup4`의 `UnicodeDammit`으로
+  교체 — HTTP 헤더 → HTML meta charset → 인코딩 자동 감지 순으로 확인하는
+  표준 도구. JSON 응답(네이버/다음/유튜브 API)에도 그대로 적용해도 안전함을
+  확인(라이브 테스트: 올바른 UTF-8 JSON은 그대로 통과).
+- **라이브 검증**: 18차에서 깨짐이 확인됐던 실제 URL
+  (`mbn.co.kr/pages/news/newsView.php?news_seq_no=5210380`)을 수정된
+  transport로 다시 가져와 "AI 농기계가 벼농사 '척척'" 같은 실제 한글이
+  정상 디코딩되는 것을 직접 확인했다.
+- `_default_request`를 직접 테스트하는 unit test가 이전엔 전혀 없었다(기존
+  transport 테스트는 전부 `request_fn`을 주입해 우회) — `requests.request`를
+  모킹하는 신규 테스트 3개 추가(헤더에 charset 없는 UTF-8 복구, HTML meta
+  charset 우선 적용(EUC-KR), JSON 바디가 여전히 정상 파싱됨).
+- `tests_v2`+`tests` **380 passed**(377 + 3).
+
+### `documents.id` 프로젝트 범위 지정 (신규 마이그레이션)
+
+- **원인**: 모든 collector의 `fetch()`가 `document_id = uuid5(NAMESPACE_URL,
+  url)`로 URL만의 결정론적 해시를 계산한다(project_id 미포함) — 반면
+  Evidence/Fact/Narrative의 ID 생성은 전부 이미 `project_id`를 해시 입력에
+  포함하고 있었다(코드로 직접 확인). 그런데 `documents` 테이블의
+  실제 PRIMARY KEY는 `id` 단독이라 테이블 전체에서 전역 유일해야 했다 —
+  같은 URL을 다른 프로젝트(다른 달)가 재수집하면 충돌한다(21차 재검증
+  중 실제로 겪음).
+- **왜 안전한 수정인가**: `documents.id`를 참조하는 모든 FK(`DuplicateCluster.
+  canonical_document_id`, `DocumentDuplicate.document_id`,
+  `EvidenceDocument.document_id`)가 이미 전부 복합 FK
+  `(project_id, id) -> (documents.project_id, documents.id)`로 선언돼
+  있었다 — `documents.id` 단독의 전역 유일성에 의존하는 코드가 단 하나도
+  없었다(코드 전체 grep으로 확인). 그래서 PRIMARY KEY를 `id` 단독에서
+  `(project_id, id)` 복합키로 바꾸는 것만으로 충돌 없이 끝난다 — collector
+  코드는 한 줄도 안 건드렸다.
+- **신규 마이그레이션** `alembic_v2/versions/
+  20261019_000002_scope_document_id_per_project.py`: SQLite는 PRIMARY KEY를
+  제자리에서 못 바꾸고, Alembic의 `batch_alter_table`도 이름 없는 기존
+  PK 제약을 못 찾아서(`drop_constraint(None, type_="primary")` →
+  `ValueError: Constraint must have a name`, 라이브로 직접 겪음) 테이블을
+  수동으로 재구성한다: rename aside → 새 PK로 재생성 → 데이터 복사 → 이전
+  테이블 drop. **SQLite가 테이블 rename 시 다른 테이블의 FK 절을 자동으로
+  새 이름 쪽으로 다시 써버리는 동작**(`duplicate_clusters` 등이
+  `documents`가 아니라 방금 rename한 `documents_pre_v2`를 가리키게 됨)도
+  라이브로 직접 겪어서 `PRAGMA legacy_alter_table=ON`으로 막았다 — 이
+  pragma 없이 먼저 테스트해서 실패를 직접 재현한 뒤 고쳤다.
+- **기존 모델도 함께 수정**: `app/models/document.py`의 `Document`가
+  `UUIDPrimaryKeyMixin`(단일 `id` PK) 대신 명시적
+  `PrimaryKeyConstraint("project_id", "id")`를 쓰도록 바꿨다 — 마이그레이션만
+  고치고 Python 모델을 안 고치면 `Base.metadata.create_all()`을 쓰는
+  대부분의 unit test가 여전히 구 스키마로 동작해 수정이 실제로 적용 안 된
+  것처럼 보였을 것.
+- **검증**: (1) 빈 DB에 upgrade/downgrade 양방향 라이브 테스트, (2) 실제
+  행 데이터를 넣고 downgrade 후 데이터 보존·PK 원복 확인 후 재upgrade,
+  (3) 같은 `document_id`를 **다른 두 프로젝트**에 실제로 insert해 더 이상
+  충돌하지 않음을 라이브로 확인(수정 전에는 이 테스트가 바로 그 에러로
+  실패하는 것도 먼저 재현함). (4) 기존 contract test
+  (`test_sqlalchemy_metadata.py`의 `has_project_scoped_identity`)가
+  `UniqueConstraint`만 인정하고 있어서 `PrimaryKeyConstraint`도 같은 의미로
+  인정하도록 넓혔다(검증하려는 불변식 자체는 그대로 유지 — "같은
+  (project_id, id)로 유일성이 보장되는가"는 PK로 보장해도 똑같이 참).
+- 신규 unit test 2개(`test_sqlalchemy_repositories.py`에 repository 레벨
+  교차 프로젝트 테스트, `test_migration_runtime.py`에 마이그레이션 레벨
+  통합 테스트 — 둘 다 "같은 document_id를 다른 두 프로젝트에 insert해도
+  안 터진다"를 직접 확인).
+- `tests_v2`+`tests` **382 passed**(380 + 2).
 
 ## 기능 완료 시 커밋·푸시 규칙
 - 기능 단위의 구현과 필요한 테스트가 완료되면 `HANDOFF.md`를 최신 상태로 갱신한 뒤 해당 기능의 변경만 선별하여 커밋하고 원격 브랜치에 푸시한다.

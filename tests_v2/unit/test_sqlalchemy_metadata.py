@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import Enum, ForeignKeyConstraint, Uuid, UniqueConstraint
+from sqlalchemy import Enum, ForeignKeyConstraint, PrimaryKeyConstraint, Uuid, UniqueConstraint
 from sqlalchemy.orm import Mapped
 
 from app.core.enums import ChannelType
@@ -116,10 +116,16 @@ def test_dependent_links_use_project_scoped_composite_foreign_keys() -> None:
         }
 
     def has_project_scoped_identity(table_name: str) -> bool:
+        # A PrimaryKeyConstraint over (project_id, id) satisfies this too --
+        # documents uses that instead of a secondary UniqueConstraint since
+        # 2026-10-19 (migration 20261019_000002): nothing downstream needs
+        # documents.id to be globally unique on its own, only every
+        # dependent table's compound FK to (project_id, id), and a PK
+        # enforces that uniqueness at least as strongly as a UniqueConstraint.
         return any(
             tuple(column.name for column in constraint.columns) == ("project_id", "id")
             for constraint in Base.metadata.tables[table_name].constraints
-            if isinstance(constraint, UniqueConstraint)
+            if isinstance(constraint, (UniqueConstraint, PrimaryKeyConstraint))
         )
 
     expected_foreign_keys = {

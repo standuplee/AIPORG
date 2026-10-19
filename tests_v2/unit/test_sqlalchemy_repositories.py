@@ -151,6 +151,41 @@ def test_collection_run_and_document_upsert_round_trip() -> None:
         assert document_repo.get_by_canonical_url(project.project_id, raw.url) is not None
 
 
+def test_same_document_id_is_allowed_across_two_different_projects() -> None:
+    # document_id is uuid5(NAMESPACE_URL, url) -- a deterministic hash of the
+    # URL alone, computed per-collector with no project_id folded in. Two
+    # projects whose keyword searches both find the same real-world URL
+    # produce the same document_id (confirmed live, 2026-10-19 -- see
+    # HANDOFF.md, migration 20261019_000002). documents.id's primary key is
+    # (project_id, id), not id alone, specifically so this doesn't collide.
+    factory = _factory()
+    now = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    shared_document_id = uuid4()
+    with session_scope(factory) as session:
+        project_repo = SqlAlchemyProjectRepository(session)
+        project_a = project_repo.create(_project())
+        project_b = project_repo.create(_project().model_copy(update={"name": "다른 프로젝트"}))
+        document_repo = SqlAlchemyDocumentRepository(session)
+
+        def _raw() -> RawDocument:
+            return RawDocument(
+                document_id=shared_document_id, source="연합뉴스", channel=ChannelType.NEWS,
+                platform="naver", title="두 프로젝트에서 같은 기사 발견",
+                url="https://example.com/shared-across-projects",
+                published_at=now, query="충남", body="본문", metadata={}, collected_at=now,
+            )
+
+        document_repo.upsert_raw(project_a.project_id, _raw())
+        document_repo.upsert_raw(project_b.project_id, _raw())
+
+        assert document_repo.get_by_canonical_url(
+            project_a.project_id, "https://example.com/shared-across-projects"
+        ) is not None
+        assert document_repo.get_by_canonical_url(
+            project_b.project_id, "https://example.com/shared-across-projects"
+        ) is not None
+
+
 def test_downstream_repositories_round_trip_fixed_contracts() -> None:
     factory = _factory()
     now = datetime(2026, 8, 1, tzinfo=timezone.utc)

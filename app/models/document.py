@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import (
     DateTime,
@@ -11,8 +11,10 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Integer,
     JSON,
+    PrimaryKeyConstraint,
     String,
     UniqueConstraint,
+    Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,10 +22,22 @@ from app.core.enums import ChannelType
 from app.models.base import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
 
 
-class Document(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+class Document(CreatedAtMixin, Base):
+    """``id`` is a deterministic hash of the document's URL alone (each
+    collector's ``fetch()`` computes ``uuid5(NAMESPACE_URL, url)``), with no
+    project_id folded in. Two different monthly projects whose keyword
+    searches happen to find the same real-world URL therefore produce the
+    same ``id`` -- confirmed live, 2026-10-19 (see HANDOFF.md, migration
+    20261019_000002). The primary key is ``(project_id, id)``, not ``id``
+    alone, so that's allowed: nothing downstream relies on ``id`` being
+    globally unique by itself, every reference already goes through the
+    compound FK (project_id, id) (DuplicateCluster.canonical_document_id,
+    DocumentDuplicate.document_id, EvidenceDocument.document_id).
+    """
+
     __tablename__ = "documents"
     __table_args__ = (
-        UniqueConstraint("project_id", "id"),
+        PrimaryKeyConstraint("project_id", "id"),
         UniqueConstraint("project_id", "canonical_url"),
         UniqueConstraint("project_id", "url_hash"),
         ForeignKeyConstraint(
@@ -33,6 +47,7 @@ class Document(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         ),
     )
 
+    id: Mapped[UUID] = mapped_column(Uuid, default=uuid4)
     project_id: Mapped[UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
