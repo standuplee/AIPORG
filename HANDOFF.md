@@ -18,9 +18,9 @@ Codex와 Claude Code가 같은 저장소 작업을 이어받기 위한 현재 �
 
 ## HWPX 구현 방향
 
-`airmang/python-hwpx`를 AIPORG와 별도 저장소로 clone/fork하여 의존성으로 사용한다. 로컬 개발에서는 editable 설치를 쓸 수 있지만, 재현 가능한 배포·CI에는 fork의 고정 커밋이나 릴리스를 지정한다. **아직 clone, fork, 설치, 코드 연결은 하지 않았다.**
+`airmang/python-hwpx`를 AIPORG와 별도 저장소로 clone/fork하여 의존성으로 사용한다. 로컬 개발에서는 editable 설치를 쓸 수 있지만, 재현 가능한 배포·CI에는 fork의 고정 커밋이나 릴리스를 지정한다. **2026-10-18(16차)에 clone·설치·연결을 완료했다** — 아래 "이번 작업과 검증 (16차)" 절 참고. GitHub fork는 아직 안 만들었다(로컬 clone만, 라이브러리 자체를 아직 고칠 필요가 없어서 fork 없이 PyPI 고정 버전을 `requirements.txt`에 넣었다 — 포맷 버그/부족 기능이 생기면 그때 fork로 전환).
 
-AIPORG 전용 보고서 목차·표지·서식·차트 PNG 배치와 형식별 출력은 AIPORG의 Report/Writer 계층에 둔다. HWPX 포맷 자체의 부족한 기능·버그는 별도 `python-hwpx` fork에서 추가한다. HWPX 첫 시제품은 기존 보고서 데이터로 표지·요약·표·차트·출처를 만들고 실제 한컴에서 열림, 페이지 배치, 줄바꿈, 표 넘침을 확인한다.
+AIPORG 전용 보고서 목차·표지·서식·차트 PNG 배치와 형식별 출력은 AIPORG의 Report/Writer 계층에 둔다. HWPX 포맷 자체의 부족한 기능·버그는 별도 `python-hwpx` fork에서 추가한다. **HWPX 첫 시제품(표지·목차·요약 3쪽)은 16차에서 구현 완료** — `app/report/hwpx_writer.py`. 실제 한컴에서 열림·페이지 배치·줄바꿈·표 넘침 확인은 아직 못 했다(이 환경에 한컴이 없음) — 라이브러리 자체의 스키마 검증·"editor-open safety" 검사만 통과했다.
 
 ## 현재 구현 상태와 제약
 
@@ -39,7 +39,7 @@ AIPORG 전용 보고서 목차·표지·서식·차트 PNG 배치와 형식별 �
 - 작업 트리에는 이 인계 설정 이전부터 다수의 미커밋 변경이 있다. 인계받는 도구는 이를 기존 작업으로 보존한다.
 - **테스트 환경: 확인·해결됨.** 시스템 `/usr/bin/python3`(3.9.6)에는 `matplotlib==3.11.0`이 설치되지 않는다(3.10+ 필요). 저장소 루트에 Homebrew Python 3.12로 `.venv`를 만들어 `requirements-dev.txt`(+ `streamlit`, `python-dotenv`)를 설치했다. `tests_v2`+`tests` **270 passed**. `.venv/`와 `aiporg2.db`는 `.gitignore`에 추가함.
 - `AGENTS.md`의 기존 1~9번 개발 규칙을 유지한다. 같은 checkout에서는 한 번에 한 도구만 파일을 수정한다. 별도 worktree를 쓰면 인계 파일과 코드 변경을 함께 전달한다.
-- **Visualization/Report 승인 계약이 결정·구현됐다(2026-10-18, 16차).** 아래 "이번 작업과 검증 (16차)" 절과 `docs/aiporg2/visualization-design.md` 참고. Streamlit 화면 6(시각 자료 편집·승인)·7(보고서 미리보기)이 이제 실제 동작 코드다 — "미구현" 패널은 화면 8(출력·이력)만 남았다.
+- **Visualization/Report 승인 계약이 결정·구현됐다(2026-10-18, 16차).** 아래 "이번 작업과 검증 (16차)" 절과 `docs/aiporg2/visualization-design.md` 참고. Streamlit 화면 6(시각 자료 편집·승인)·7(보고서 미리보기)·8(출력·이력, HWPX 3쪽 시제품 다운로드만)이 이제 실제 동작 코드다 — **"미구현" 패널은 더 이상 없다**(`NOT_IMPLEMENTED_PAGES`도 삭제함). 단, 화면 8은 전체 12쪽 조립이 아니라 표지/목차/요약 시제품뿐이고, 실제 한컴에서 열어보는 검증은 아직 사용자가 직접 해야 한다.
 
 ## Streamlit 실행 방법
 
@@ -101,7 +101,7 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 | Phase 4 | Evidence → 검증된 Fact → Issue 확정과 출처 역추적 | 기록상 완료, Streamlit "이슈 확정 실행" 버튼으로 실제 실행 확인(9차). 공식 출처 정책 미결정 |
 | Phase 5 | canonical 문서 기준 언급량·채널·키워드·감성·비교기간 집계와 AnalyticsSnapshot | 기록상 완료, Streamlit "통계 집계 실행" 버튼으로 실제 실행 확인(9차). 댓글은 `comment_count`로 분리 집계(12차) |
 | Phase 6 | GPT/Claude 서술 초안, 근거·수치 검증, 초안·수정·승인 버전 저장, Streamlit 검수 UI | 완료. 출력 계약(8차)·Gemini 어댑터(8차)·Streamlit 화면 1~5(9차)·수정·버전 비교(10차)에 이어 **narrative 승인(approve_output)까지 16차에서 실제로 연결함** |
-| Phase 7 | 승인본과 AnalyticsSnapshot에서 차트·보고서 조립, DOCX·Markdown·HWPX 출력 및 실제 HWPX 열림·배치 검증 | **Visualization/Report 승인 계약 결정·구현, VIS-02/VIS-07 편집·승인 UI, 최종 승인→Report 생성까지 16차에서 완료.** DOCX/Markdown/HWPX writer 자체는 아직 미구현(M5/M6) |
+| Phase 7 | 승인본과 AnalyticsSnapshot에서 차트·보고서 조립, DOCX·Markdown·HWPX 출력 및 실제 HWPX 열림·배치 검증 | **Visualization/Report 승인 계약 결정·구현, VIS-02/VIS-07 편집·승인 UI, 최종 승인→Report 생성, python-hwpx 연결 + 표지/목차/요약 3쪽 HWPX 시제품(`app/report/hwpx_writer.py`)까지 16차에서 완료.** 실제 한컴 열림·배치 검증은 못 함(환경에 한컴 없음). 전체 12쪽 조립·DOCX·Markdown writer는 아직 미구현(M5/M6) |
 | Phase 8 | 프로젝트 실행·상태·재시도·승인본·산출물 조회를 위한 API/CLI와 운영 설정 | 미구현 |
 
 개정 실행 순서는 **M0 계약·템플릿 기준 → M1 실제 다중 채널 수집 보완 → M2 분석·근거 보완 → M3 LLM 초안 → M4 Streamlit 검수·승인 → M5 표·그림 및 HWPX → M6 동일 승인본 3형식 출력·운영**이다. 각 모듈 unit test, 단계별 integration test, 기존 1.0 회귀 테스트를 통과한 뒤 진행한다. 승인되지 않은 초안은 최종 보고서로 내보내지 않는다.
@@ -113,7 +113,11 @@ state machine이 각 상태를 한 번만 허용 — 위 참고). 구글/커뮤�
 2. ~~Visualization·Report의 시각 자산 버전/승인 저장 계약을 명시적으로 결정한다~~ — **결정·구현 완료(2026-10-18, 16차).** 아래 "이번 작업과 검증 (16차)" 절과 `docs/aiporg2/visualization-design.md` 참고.
 3. 구글 결과의 channel 분류를 전부 `NEWS`로 단순화해둔 것(11차)을 URL/도메인 기반으로 정교화할지 결정한다(지금은 의도적 단순화일 뿐 결정 대상은 아니었음 — 필요성이 보이면 결정 목록에 추가).
 4. 댓글이 Evidence→Fact→Issue 파이프라인에도 섞여 들어가는 걸 그대로 둘지 결정한다(12차에서 새로 생긴 미해결 질문 — 아래 "확정된 결정" 바로 다음 절 참고). 지금은 analytics 집계에서만 분리했고 Evidence/Fact 단계는 건드리지 않았다.
-5. python-hwpx를 연결하고 표지+목차+요약 3쪽 시제품을 만든다(16차에서 진행 중 — 아래 "이번 작업과 검증 (16차)" 절 참고). 실제 한컴에서의 열림·배치 검증은 아직 못 했다.
+5. ~~python-hwpx를 연결하고 표지+목차+요약 3쪽 시제품을 만든다~~ — **구현
+   완료(16차).** `app/report/hwpx_writer.py` + Streamlit "8. 출력·이력"의
+   다운로드 버튼. **실제 한컴에서의 열림·배치 검증은 여전히 못 했다** — 이
+   환경에 한컴이 없어서 사용자가 직접 받아서 열어봐야 한다(AT-15의 핵심
+   남은 조건).
 6. VIS-01,03,04,06,08,09 등 나머지 시각 자료 종류와 일반 표 편집 UI를 확장한다(VIS-02/07만 16차에서 연결함).
 
 ## 확정된 결정 (2026-10-16)
@@ -871,8 +875,8 @@ robots.txt가 명시적으로 허용한 경로까지 전부 `False`(차단)로 �
 
 사용자가 15차 끝에 정리한 "다음 행동" 중 "1. Visualization/Report 시각 자산
 승인 계약 결정 → narrative '최종 승인' 버튼 연결"과 "2. 시각 자료 2종(채널
-도넛, TOP10 카드) 편집 UI → HWPX 3쪽 시제품"을 "1,2까지 진행"으로 승인.
-HWPX 부분은 아직 진행 중(별도로 아래에 기록).
+도넛, TOP10 카드) 편집 UI → HWPX 3쪽 시제품"을 "1,2까지 진행"으로 승인. 둘
+다 끝까지 구현·검증했다(HWPX 포함, 아래 참고).
 
 ### M0 계약 결정: `docs/aiporg2/visualization-design.md` (신규 문서)
 
@@ -951,25 +955,85 @@ VIS-02 채널 도넛은 `metrics["channel_mentions"]`, VIS-07 TOP10 카드는
   클릭 시 실제로 `Report`(시각 자료 2건 포함)가 DB에 저장되는 것까지
   sqlite3로 직접 확인했다.
 
+### python-hwpx 연결 + HWPX 3쪽 시제품 (`app/report/hwpx_writer.py`)
+
+- **python-hwpx 6.8.0을 연결했다.** `/Users/seoralee/Documents/Github/
+  python-hwpx`(AIPORG와 별도 디렉터리, 사용자 결정 "별도 저장소"를 그대로
+  따름)에 upstream(`airmang/python-hwpx`)을 **읽기 전용으로 local clone**만
+  했다 — GitHub fork는 안 만들었다. 라이브러리 자체를 고칠 필요가 아직
+  없어서(순정 API로 충분함) `requirements.txt`에 PyPI 고정 버전
+  (`python-hwpx==6.8.0`)을 추가했다 — HANDOFF "HWPX 구현 방향"이 말하는
+  "포맷 자체의 버그·부족 기능이 생기면 그때 fork로 전환" 조건이 아직 안
+  와서, 지금은 fork보다 PyPI 고정이 더 단순하고 재현 가능한 선택이라고
+  판단했다.
+- **`build_cover_toc_summary(report, narrative_output, visualization_outputs,
+  title=...)` → HWPX bytes.** 입력은 전부 이미 승인된 contract뿐이다
+  (`ReportSchema`, 승인된 `NarrativeOutputSchema`, 두 슬롯의 승인된
+  `VisualizationOutputSchema`) — 새 사실·숫자를 하나도 만들지 않는다
+  (AGENTS.md 6번). 표지(제목·부제·승인 시각) → 목차(`hwpx.tools.toc_author.
+  add_native_toc`+`mark_toc_dirty` — 페이지 재계산은 한컴이 다음에 열 때
+  직접 함, 라이브러리의 쪽번호는 추정치일 뿐) → 요약(narrative 문장 +
+  채널 도넛을 matplotlib PNG로 결정론적 렌더링해 삽입 + TOP10 키워드를
+  편집 가능한 HWPX 표로 삽입) 순서. 표지/목차/요약 사이는
+  `doc.styles.apply_paragraph_format(paragraphs=[...], page_break_before=
+  True)`로 페이지를 나눈다. 두 슬롯 중 하나라도 없으면
+  `HwpxPrototypeError`.
+- **실제로 찾은 API 함정 2개(라이브 API 탐색 중 발견):** (1) `doc.
+  set_paragraph_format(paragraphs=...)`는 6.0에서 deprecated된 legacy
+  facade라 새 키워드(`paragraphs=`)를 받지 않는다 — `doc.styles.
+  apply_paragraph_format(paragraphs=...)`(6.x 신규 표면)을 써야 한다.
+  (2) `TextExtractor`/`validate_document`는 파일 경로나 `BytesIO`를
+  받지만 **raw bytes를 직접 주면 `zipfile`이 터진다**(`'bytes' object
+  has no attribute 'seek'`) — `BytesIO(raw)`로 감싸야 한다. 둘 다 unit
+  test를 돌리다가 실제로 걸려서 고쳤다.
+- **검증 방법과 한계(투명하게 기록):** 이 환경에 실제 한컴이 없어서
+  "진짜로 열리는지"는 확인할 수 없다. 대신 python-hwpx 자체가 제공하는
+  두 자동 검증을 썼다 — `hwpx.tools.validator.validate_document`(OWPML
+  스키마 위반 검사)와 `hwpx.tools.package_validator.
+  validate_editor_open_safety`(패키지 구조+재오픈+문서 검증을 묶은
+  "에디터가 열기 전에 걸릴 만한 문제" 게이트, README가 "open-safety
+  gate"라고 부르는 것) — 생성한 시제품이 둘 다 통과하는 것을 unit test로
+  고정했다. **이것이 "실제 한컴에서 열림을 확인했다"는 뜻은 아니다** —
+  라이브러리 저자가 측정한 "Hancom opens 476/476" 같은 수치의 근거가 되는
+  바로 그 코퍼스 검증 도구이긴 하지만, 이 세션에서 우리 산출물로
+  직접 돌린 건 구조 검증뿐이다. 실제 한컴 열림·페이지 배치·줄바꿈·표
+  넘침 확인은 **여전히 사용자가 직접 해야 한다.**
+- **Streamlit 연결 — "8. 출력·이력" 신규 구현(더 이상 "미구현" 패널
+  아님):** 승인된 Report + narrative 출력 + 시각 자료 2종 출력이 전부
+  있으면 시제품을 바로 만들어 `st.download_button`으로 내려준다. 하나라도
+  없으면 "7. 보고서 미리보기에서 먼저 최종 승인하라"고 안내한다. 이제
+  8화면 전체가 "미구현" 패널 없이 실제 코드로 동작한다 — 더는 쓰이지
+  않는 `NOT_IMPLEMENTED_PAGES`/`page_not_implemented`도 같이 지웠다.
+- **실제로 끝까지 실행해서 검증함(`AppTest`):** narrative 승인 → VIS-02/07
+  생성·승인 → "7. 보고서 미리보기" 최종 승인 → "8. 출력·이력"에서 성공
+  메시지와 다운로드 버튼이 실제 HWPX bytes와 함께 뜨는 것까지 전부
+  확인했다. 이게 이번 세션에서 만든 가장 긴 수직 흐름이다(수집 이후
+  단계만 보면 narrative 승인부터 HWPX 다운로드까지 끊김 없음).
+
 ### 테스트
 
-신규 unit test 23개: `VisualizationOutputSchema`/`VisualizationItemSchema`
+신규 unit test 26개: `VisualizationOutputSchema`/`VisualizationItemSchema`
 9개, `NarrativeOutputSchema.approved` 검증 2개(+기존 파일에 추가),
 `VisualizationRenderService` 6개, 저장소 2개(narrative `approve_output`,
 visualization output round-trip+승인), `ReportApprovalService` 3개(미승인
 전체 차단, 전체 승인 시 Report 생성, 시각 자료 재편집 후 재승인 전까지
-차단). `tests_v2`+`tests` **366 passed**(343 + 23). Streamlit 레이어는
-이전 라운드들과 같은 이유로 신규 unit test 없이 `AppTest`로만 수동 검증함
-(실행 스크립트는 세션 scratch에만 있었고 커밋하지 않음).
+차단), `hwpx_writer` 3개(실제 내용 round-trip+구조 검증 통과, 필수 슬롯
+누락 시 에러, 빈 항목일 때도 안 죽음). `tests_v2`+`tests` **369 passed**
+(343 + 26). Streamlit 레이어는 이전 라운드들과 같은 이유로 신규 unit
+test 없이 `AppTest`로만 수동 검증함(실행 스크립트는 세션 scratch에만
+있었고 커밋하지 않음).
 
 ### 아직 안 한 것 / 다음 행동
 
-- HWPX 3쪽 시제품(표지/목차/요약) — python-hwpx 연결 작업 중(진행 중,
-  별도로 다음 절에 기록되거나 다음 세션에서 이어감).
+- **실제 한컴에서 HWPX 시제품을 열어 확인하는 것** — 이 세션이 끝까지
+  못 한 유일한 핵심 검증. "8. 출력·이력"에서 받은 파일을 사용자가 직접
+  한컴으로 열어봐야 한다.
 - VIS-01,03,04,06,08,09 및 일반 표는 이번 범위 밖(1차 최소 단위는
-  VIS-02/07만).
+  VIS-02/07만) — HWPX 쪽도 같은 2종만 반영했다.
 - `ReportSchema.context`에 승인된 narrative 문장을 실제로 번들링하는
   문제(위 "알려진 범위 제한" 참고) — M5/M6 HWPX 조립 작업 때 다시 결정.
+- 전체 12쪽 HWPX 조립, DOCX/Markdown writer, python-hwpx fork(라이브러리
+  자체 수정이 필요해지면) — M5/M6.
 
 ## 기능 완료 시 커밋·푸시 규칙
 - 기능 단위의 구현과 필요한 테스트가 완료되면 `HANDOFF.md`를 최신 상태로 갱신한 뒤 해당 기능의 변경만 선별하여 커밋하고 원격 브랜치에 푸시한다.

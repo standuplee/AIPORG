@@ -13,10 +13,12 @@ collection service, enums, plus the additive output/approval contracts in
 ``docs/aiporg2/visualization-design.md``, 2026-10-18). Narrative drafting,
 visualization (VIS-02 channel donut + VIS-07 TOP10 cards only -- the rest of
 VIS-01..09 are not built yet), and final report approval are implemented and
-wired end to end. HWPX/DOCX/MD export is not implemented yet (see the M5/M6
-sections of ``docs/superpowers/plans/2026-09-08-aiporg2-implementation.md``)
-and is shown here as an explicit "not implemented" panel rather than a
-placeholder that looks functional.
+wired end to end. "8. 출력·이력" only offers a 3-page HWPX prototype (cover,
+TOC, summary) once a report is approved -- full DOCX/Markdown writers and the
+real 12-page HWPX assembly are not implemented yet (M5/M6 sections of
+``docs/superpowers/plans/2026-09-08-aiporg2-implementation.md``). The HWPX
+prototype has not been opened in real Hancom Office from this environment --
+that verification still needs a human with the actual editor.
 """
 
 from __future__ import annotations
@@ -74,6 +76,7 @@ from app.models.project import Query
 from app.narrative.llm_adapter import GeminiNarrativeAdapter, NarrativeGenerationError
 from app.narrative.template import TemplateNarrativeService
 from app.report.approval import ReportApprovalError, ReportApprovalService
+from app.report.hwpx_writer import HwpxPrototypeError, build_cover_toc_summary
 from app.repositories.sqlalchemy import (
     SqlAlchemyAnalyticsRepository,
     SqlAlchemyCollectionRunRepository,
@@ -159,13 +162,6 @@ _WORKFLOW_STATE_ORDER = [
 
 def _state_at_least(current: WorkflowState, target: WorkflowState) -> bool:
     return _WORKFLOW_STATE_ORDER.index(current) >= _WORKFLOW_STATE_ORDER.index(target)
-NOT_IMPLEMENTED_PAGES = {
-    "출력·이력": (
-        "python-hwpx 연결, 2.0 DOCX/Markdown writer가 M5/M6 예정 작업이라 아직 "
-        "출력할 수 없다. Visualization/Report 승인 계약 자체는 "
-        "docs/aiporg2/visualization-design.md(2026-10-18)에서 결정·구현됐다."
-    ),
-}
 
 
 @st.cache_resource
@@ -1184,13 +1180,55 @@ def page_report(factory: sessionmaker) -> None:
         )
 
 
-def page_not_implemented(title: str, reason: str) -> None:
-    st.header(title)
-    st.warning("미구현")
-    st.write(reason)
+def page_output(factory: sessionmaker) -> None:
+    st.header("8. 출력·이력")
+    project_id_str = _require_active_project()
+    if project_id_str is None:
+        return
+    project_id = UUID(project_id_str)
+
     st.caption(
-        "상세는 docs/superpowers/plans/2026-09-08-aiporg2-implementation.md의 "
-        "M0/M3/M5 절 참고."
+        "DOCX/Markdown writer와 전체 12쪽 HWPX 조립은 아직 미구현(M5/M6). "
+        "아래는 표지+목차+요약 3쪽짜리 HWPX 시제품만 내려받을 수 있다 — 이 "
+        "환경에는 실제 한컴이 없어 열림·배치 검증을 못 했으니, 받은 파일을 "
+        "직접 한컴에서 열어 확인해야 한다(docs/aiporg2/visualization-design.md, "
+        "HANDOFF.md 16차 '검증 못 한 부분' 참고)."
+    )
+
+    with session_scope(factory) as session:
+        project = SqlAlchemyProjectRepository(session).get(project_id)
+        report = SqlAlchemyReportRepository(session).get_latest(project_id)
+        narrative_output = SqlAlchemyNarrativeRepository(session).get_latest_output(project_id)
+        visualization_repo = SqlAlchemyVisualizationRepository(session)
+        visualization_outputs = {
+            slot_key: visualization_repo.get_latest_output(project_id, slot_key)
+            for slot_key in VISUALIZATION_SLOTS
+        }
+
+    if project is None:
+        st.error("프로젝트를 찾지 못했다.")
+        return
+    if report is None or narrative_output is None or any(
+        output is None for output in visualization_outputs.values()
+    ):
+        st.info("먼저 '7. 보고서 미리보기'에서 최종 승인을 완료해야 HWPX 시제품을 만들 수 있다.")
+        return
+
+    try:
+        raw = build_cover_toc_summary(
+            report, narrative_output, visualization_outputs,
+            title=f"{project.name} 온라인여론 키워드조사 분석 보고서",
+        )
+    except HwpxPrototypeError as exc:
+        st.error(f"HWPX 시제품 생성 실패: {exc}")
+        return
+
+    st.success(f"report_id `{report.report_id}` 기준으로 생성했다.")
+    st.download_button(
+        "HWPX 시제품 다운로드 (표지/목차/요약 3쪽)",
+        data=raw,
+        file_name=f"{project.name}-prototype.hwpx",
+        mime="application/hwp+zip",
     )
 
 
@@ -1227,8 +1265,7 @@ def main() -> None:
     elif page == "7. 보고서 미리보기":
         page_report(factory)
     else:
-        title = page.split(". ", 1)[1]
-        page_not_implemented(page, NOT_IMPLEMENTED_PAGES[title])
+        page_output(factory)
 
 
 if __name__ == "__main__":

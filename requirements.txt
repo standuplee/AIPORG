@@ -20,6 +20,13 @@ lxml==6.1.1
 # (app/collectors/community/robots.py 에서 라이브로 확인·정정).
 protego==0.7.0
 
+# HWPX 출력 (2.0, 시제품 — docs/aiporg2/visualization-design.md 16차).
+# upstream python-hwpx(https://github.com/airmang/python-hwpx)를 그대로 쓴다.
+# 아직 AIPORG 전용 fork 수정이 필요하지 않아 PyPI 고정 버전으로 둔다 —
+# 포맷 자체의 버그/부족 기능이 생기면 그때 별도 fork로 전환한다(HANDOFF.md
+# "HWPX 구현 방향" 참고).
+python-hwpx==6.8.0
+
 # 커뮤니티 어댑터 / YouTube 내부 API
 fastapi>=0.110
 uvicorn>=0.29
