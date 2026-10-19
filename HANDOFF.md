@@ -1035,6 +1035,136 @@ test 없이 `AppTest`로만 수동 검증함(실행 스크립트는 세션 scrat
 - 전체 12쪽 HWPX 조립, DOCX/Markdown writer, python-hwpx fork(라이브러리
   자체 수정이 필요해지면) — M5/M6.
 
+## 이번 작업과 검증 (2026-10-19, 17차: 2026-08 실데이터 1회 테스트 — 코드 변경 없음, 발견 사항만)
+
+사용자가 8월/9월 키워드 목록을 주고 "일단 이걸로 해서 2026년 8월 테스트
+한번 돌려줘. 시각자료는 이미지로 다운받아서 따로 데스크탑 안에 폴더에
+넣어주고, llm으로 만든 생성형 문구들도 txt 파일로 일단 저장. streamlit말고
+테스트로 진행"이라고 요청. **이번 라운드는 코드를 한 줄도 안 고쳤다** — 이미
+있는 production 코드(collector/clean/dedup/evidence/fact/issue/analytics/
+narrative/visualization/report-approval)를 Streamlit 없이 스크립트로
+그대로 호출해서 실제로 돌려본 것뿐이고, 그 과정에서 중요한 데이터 품질
+문제 3가지를 발견했다. 스크립트 자체는 세션 scratch에만 있었고 저장소에
+커밋하지 않았다(1회성 실행 도구).
+
+### 1차 시도 — 자격증명 없음 확인 후 가짜 데이터로 구조만 확인
+
+이 환경에 `.env`가 아예 없고 `AIPORG2_*` 쉘 환경변수도 전혀 없어서, 먼저
+사용자에게 물어봤고 "키 없이 템플릿/가짜 데이터로만 파이프라인 구조 확인"을
+선택받아 가짜 collector(출처 2곳이 똑같은 문장을 보도하는 것처럼 꾸민 fixture)
+로 전체 흐름(수집→정제→중복제거→Evidence→Fact→Issue→Analytics→템플릿
+narrative→VIS-02/07→최종 승인)이 끝까지 연결되는 것만 확인했다. 이 결과물은
+전부 `[TEST-가짜데이터]`로 표시해 실제 산출물과 섞이지 않게 했고, 사용자가
+real 테스트를 요청하면서 바로 지웠다(세션 중 본인이 만든 scratch 산출물).
+
+### 2차 — 사용자가 `.env`를 채워 넣은 뒤 실제 라이브 테스트
+
+`.env`에 `AIPORG2_NAVER_CLIENT_ID/SECRET`, `AIPORG2_KAKAO_REST_API_KEY`,
+`AIPORG2_YOUTUBE_API_KEY`, `AIPORG2_GOOGLE_API_KEY`,
+`AIPORG2_GOOGLE_SEARCH_ENGINE_ID`(값은 비어 있었음 — 아래 참고),
+`AIPORG2_GEMINI_API_KEY`가 채워졌다. 8월 키워드 4개
+(AI 농기계·빠르미향 / '기후살인' / 이탈리아 순방·교황만나 '충남방문' 요청 /
+석탄화력폐지지역 특별법·발전 공기업 통합본사 충남유치)로 프로젝트를 만들고
+`streamlit_app/console.py`의 `build_collectors()`를 그대로 재사용해 naver·
+daum·youtube·community 4개 채널(구글은 빠짐, 아래 참고) × 키워드 4개 = 16건
+실제 네트워크 수집을 실행했다. 이후 EvidenceToIssuesWorkflow →
+IssuesToAnalyticsWorkflow → Gemini narrative(이슈별 호출, 실패 시 템플릿
+fallback) → VIS-02/07 생성·승인 → ReportApprovalService 최종 승인까지
+**전부 production 코드 그대로, 끊김 없이 완주했다.**
+
+결과물: `~/Desktop/AIPORG_2026-08/images/{01_channel_donut.png,
+02_top10_keywords.png}`(차트 2개, 한글 폰트 포함 정상 렌더링 확인함),
+`~/Desktop/AIPORG_2026-08/narrative_txt/*.txt`(이슈 6개, 문장 403개 —
+아래 발견 2 때문에 이슈가 키워드 4개가 아니라 6개로 쪼개짐).
+
+### 발견 1 (가장 중요, 우선 조치 필요): collector가 기사 본문이 아니라 페이지 전체 텍스트를 가져온다
+
+실제 TOP10 키워드 결과가 "전체·있다·바로가기·기사보내기·댓글·닫기" 같은
+**사이트 UI 문구**였고, Fact claim 문장도 상당수가 "｜동아일보 본문으로
+바로가기 검색창 닫기 궁금하신 [...] 키워드를 검색해 보세요" 같은 **내비게이션/
+관련기사 위젯 텍스트**였다(기사 본문이 아님). 원인을 코드에서 확인함:
+`app/collectors/naver_news.py`의 `_TextExtractor`(`_clean_body`가 쓰는
+HTMLParser 서브클래스)는 `<script>/<style>/<noscript>/<template>` 안의
+텍스트만 건너뛰고, **`<nav>`/`<header>`/`<footer>`/메뉴/관련기사 영역은 전혀
+걸러내지 않는다** — 사실상 페이지 전체의 보이는 텍스트를 그대로
+`RawDocument.body`로 쓴다. `CleaningService`(`app/cleaning/service.py`)는
+태그 제거·공백 정리만 하는 "순수 정규화" 계층이라고 스스로 문서화돼 있고
+실제로도 본문 영역을 가려내는 책임을 지지 않는다 — 즉 **본문 추출(관련성
+정제)은 collector의 책임인데 naver_news.py가 이를 구현하지 않은 것**이
+근본 원인이다. `FactExtractionService._first_sentence()`는 이 오염된
+body의 첫 "문장"(마침표 기준)을 그대로 claim으로 쓰므로, 메뉴 텍스트가
+우연히 마침표로 끝나면 그게 Fact claim이 된다. **이 문제는 이번 테스트로
+새로 드러난 것이지, 이전 세션들이 놓친 게 아니다** — 이전 세션들은
+unit test의 손으로 쓴 깨끗한 fixture 본문으로만 검증했기 때문에
+한 번도 실제 네이버 기사 페이지로 끝까지 돌려본 적이 없었다(coverage
+자체는 전부 가짜 clean fixture). 영향 범위: naver 외 daum/youtube/
+community collector도 각자 비슷한 패턴(전체 페이지 텍스트 vs 본문 영역)을
+썼을 가능성이 있어 재확인이 필요하다 — 이번엔 naver만 코드로 직접 확인했다.
+**우선순위 높은 다음 행동으로 기록**(아래 "다음 행동" 참고). 고치기 전까지는
+실제 수집 데이터 기반 Fact/Issue/TOP10 키워드의 신뢰도가 낮다고 보는 게
+안전하다.
+
+### 발견 2: 이슈 그룹화가 키워드가 아니라 고정 3개 용어(기관/인물/지역) 기준이라는 설계 한계가 실데이터에서도 그대로 드러남
+
+16차에서 가짜 데이터로 이미 적어뒀던 것과 같은 한계(`EvidenceToIssuesWorkflow`
+→ `IssueDiscoveryService.discover()`가 `fact.entities`로만 묶고, 이
+`entities`는 `[project.target.organization, primary_person, region]` =
+["충청남도","도지사","충남"] 중 claim 문장에 등장하는 조합일 뿐 키워드와
+무관함)가 실제 수집 데이터에서는 더 뚜렷하게 나타났다. 키워드 4개를 넣었는데
+이슈는 6개가 나왔고, 그중 "충남"이라는 라벨 하나가 fact 337건(전체 403건
+중 대부분)을 흡수했다 — "충남"이라는 글자가 들어간 문장은 전부 같은
+이슈로 묶이기 때문에, 주제가 전혀 다른 기사들(AI 농기계든 석탄화력이든)도
+"충남"만 포함하면 한 이슈로 합쳐진다. **매월 키워드 4~5개가 자동으로
+4~5개 이슈로 나뉘는 것은 현재 구현으로는 보장되지 않는다** — 월간 보고서의
+"이슈별 페이지" 구조를 실제로 만들려면 이슈 그룹화 로직 자체를 키워드
+기준으로 바꾸거나 보완해야 한다(M2 대상, 아래 "다음 행동"에 기록).
+
+### 발견 3: Gemini `gemini-2.0-flash` 호출이 전부 404로 실패, 템플릿 fallback은 설계대로 정상 동작
+
+이슈 6건 전부 `GeminiNarrativeAdapter.generate()`가
+`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`
+에서 HTTP 404를 반환했다(`app/narrative/llm_adapter.py`). 이 스크립트는
+8차 결정대로 실패 시 해당 이슈만 템플릿으로 떨어지도록 짰고 실제로 6건
+전부 정상적으로 템플릿 fallback → 문장 생성 → txt 저장까지 이어졌다 —
+**fallback 설계 자체는 의도대로 동작을 확인함.** 404의 정확한 원인(모델명이
+이 API 키/프로젝트에서 바뀌었는지, 아예 사용 불가 모델인지)은 조사하지
+않았다 — 다음 행동으로 남긴다(`gemini-2.5-flash`/`gemini-flash-latest` 등
+대안 모델명 확인, 또는 `GET /v1beta/models?key=...`로 실제 사용 가능한
+모델 목록 조회부터 필요).
+
+### 그 외 확인한 것
+
+- **구글 수집기는 이번 라운드에서 빠졌다** — `.env`의
+  `AIPORG2_GOOGLE_SEARCH_ENGINE_ID` 값이 **비어 있었다**(`AIPORG2_GOOGLE_API_KEY`는
+  채워져 있음). `build_collectors()`는 둘 다 있어야 구글 collector를
+  만들기 때문에 자동으로 빠졌다 — 오류가 아니라 설계대로의 동작. 구글도
+  테스트하려면 Custom Search Engine ID(cx) 값을 `.env`에 추가해야 한다.
+- **수집량 자체는 매우 컸다** — 키워드 4개 × 채널 4개 = 16건 수집에서
+  고유 문서 4052건이 나왔지만, 2026-08 분석 기간으로 거른 뒤에는 373건만
+  남았다(`'기후살인'` 키워드 하나가 뉴스에서만 2984건 발견 — 인용부호가
+  포함된 키워드가 검색엔진에서 예상보다 훨씬 넓게 매칭된 것으로 보임).
+  naver/daum collector가 아직 날짜로 결과를 거르지 않는다는 기존 기록
+  (6차)과 정확히 일치하는 동작 — 새로 생긴 문제가 아니라 기존에 알려진
+  한계가 실제 규모로 확인된 것.
+- fmkorea를 포함한 커뮤니티 수집은 이번엔 봇 차단 없이 조용히 0건(해당
+  없음)으로 끝났다 — 15차에서 겪었던 차단이 이번엔 재현되지 않았다(완전히
+  해소됐다는 뜻은 아님, 단발성 테스트라 결론 내리기엔 이르다).
+
+### 다음 행동 (우선순위 순)
+
+1. **naver_news.py(및 다른 collector들) 본문 추출을 "페이지 전체 텍스트"에서
+   "실제 기사 본문 영역"으로 좁힌다** — 발견 1. community collector가 14차에서
+   이미 사이트별 전용 셀렉터를 쓰고 있으니 그 패턴을 참고할 수 있다. 이 수정
+   없이는 실데이터 기반 Fact/Issue/키워드 결과를 신뢰하기 어렵다.
+2. Gemini 404 원인 확인 — 모델명 확정 또는 사용 가능한 모델 목록 조회.
+3. 이슈 그룹화를 키워드 인지형으로 보완할지 결정(M2) — 발견 2.
+4. (선택) daum/youtube/community collector의 본문 추출도 같은 문제가 있는지
+   코드로 재확인(naver만 이번에 직접 확인함).
+
+이번 라운드는 **의도적으로 코드를 고치지 않았다** — 사용자가 "테스트 한 번
+돌려봐"라고 요청했을 뿐이라, 발견한 문제를 바로 고치는 대신 결과와 원인을
+보고하고 우선순위만 기록했다.
+
 ## 기능 완료 시 커밋·푸시 규칙
 - 기능 단위의 구현과 필요한 테스트가 완료되면 `HANDOFF.md`를 최신 상태로 갱신한 뒤 해당 기능의 변경만 선별하여 커밋하고 원격 브랜치에 푸시한다.
 - 커밋 전 `git status`와 diff를 확인한다. 다른 작업자의 변경, 무관한 파일, 비밀값은 포함하지 않는다. 테스트가 실패하거나 기능이 미완성이면 완료 커밋으로 처리하지 않고 상태를 `HANDOFF.md`에 기록한다.
