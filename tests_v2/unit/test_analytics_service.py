@@ -130,3 +130,33 @@ def test_ambiguous_document_identity_is_rejected():
         build([first, first.model_copy(update={"body": "다른 본문"})])
     with pytest.raises(ValueError, match="canonical"):
         build([first, first.model_copy(update={"document_id": uuid4()})])
+
+
+def test_keyword_extraction_drops_particles_verbs_and_leaked_script_tokens():
+    # 2026-10-19 real-data finding: plain character-token frequency put
+    # particles/verbs ("있다"/"위해"/"지난"/"함께") and leaked inline
+    # JavaScript ("var") at the top of TOP10 -- none of these are ever
+    # tagged NNG/NNP, so the noun-only filter must drop them all.
+    noisy = document(
+        title="소식",
+        body=(
+            "AI 농기계 보급 사업을 위해 충남도는 지난 폭염 대응 현장을 함께 "
+            "점검했다고 밝혔다. var fixed = false 라는 코드도 섞여 있다."
+        ),
+    )
+    metrics = build([noisy])
+    keywords = metrics["keyword_frequencies"]
+    for noise in ("있다", "위해", "지난", "함께", "var", "ai"):
+        assert noise not in keywords
+    for real_keyword in ("농기계", "보급", "사업", "폭염", "대응", "현장", "점검"):
+        assert real_keyword in keywords
+
+
+def test_keyword_extraction_falls_back_to_token_frequency_without_kiwipiepy(monkeypatch):
+    from app.analytics import service as analytics_service
+
+    monkeypatch.setattr(analytics_service, "_get_kiwi", lambda: None)
+    doc = document(title="정책", body="정책 지원 123")
+    metrics = build([doc])
+    assert metrics["keyword_frequencies"] == {"정책": 2, "지원": 1}
+    assert metrics["basis"]["keywords"] == "title_and_body_casefold_letter_tokens_min_length_2"

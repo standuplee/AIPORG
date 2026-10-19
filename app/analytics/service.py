@@ -23,6 +23,46 @@ from app.schemas.fact import FactSchema
 from app.schemas.issue import IssueSchema
 
 
+# General/proper nouns only (NNG/NNP) -- deliberately excludes bound nouns
+# (NNB, e.g. "것"/"수"/"때문") and every other part of speech. Real-data
+# testing (2026-10-19) found that plain character-token frequency surfaced
+# particles and verb forms ("있다", "위해", "지난", "함께") and leaked inline
+# JavaScript ("var") as top "keywords" -- none of those are ever tagged
+# NNG/NNP, so switching to POS-filtered nouns removes them without a
+# hand-maintained stopword list.
+_KEYWORD_NOUN_TAGS = frozenset({"NNG", "NNP"})
+_kiwi_instance = None
+_kiwi_unavailable = False
+
+
+def _get_kiwi():
+    global _kiwi_instance, _kiwi_unavailable
+    if _kiwi_unavailable:
+        return None
+    if _kiwi_instance is None:
+        try:
+            from kiwipiepy import Kiwi
+            _kiwi_instance = Kiwi()
+        except Exception:
+            _kiwi_unavailable = True
+            return None
+    return _kiwi_instance
+
+
+def _extract_keyword_tokens(text: str) -> list[str]:
+    """Tokenize to keyword candidates: Korean nouns via kiwipiepy, with a
+    plain-regex fallback (numbers excluded) if kiwipiepy is unavailable."""
+
+    kiwi = _get_kiwi()
+    if kiwi is not None:
+        return [
+            token.form.casefold()
+            for token in kiwi.tokenize(text)
+            if token.tag in _KEYWORD_NOUN_TAGS and len(token.form) >= 2
+        ]
+    return re.findall(r"[^\W\d_]{2,}", text.casefold())
+
+
 class AnalyticsService:
     """Compute observed-document statistics with per-bucket document provenance.
 
@@ -85,7 +125,7 @@ class AnalyticsService:
         keyword_counts: Counter[str] = Counter()
         keyword_documents: dict[str, list[str]] = defaultdict(list)
         for document in current:
-            counts = Counter(re.findall(r"[^\W\d_]{2,}", f"{document.title}\n{document.body}".casefold()))
+            counts = Counter(_extract_keyword_tokens(f"{document.title}\n{document.body}"))
             keyword_counts.update(counts)
             for token in sorted(counts):
                 keyword_documents[token].append(str(document.document_id))
@@ -147,7 +187,9 @@ class AnalyticsService:
             "analysis_period": analysis_period.model_dump(mode="json"),
             "comparison_period": comparison_period.model_dump(mode="json") if comparison_period else None,
             "sentiment": "existing_metadata_sentiment_only",
-            "keywords": "title_and_body_casefold_letter_tokens_min_length_2",
+            "keywords": "kiwipiepy_NNG_NNP_nouns_min_length_2_casefold"
+            if _get_kiwi() is not None
+            else "title_and_body_casefold_letter_tokens_min_length_2",
             "comparison": "observed_document_totals_without_period_length_normalization",
             "coverage": "stored_documents_only_not_verified_collection_completeness",
         }
