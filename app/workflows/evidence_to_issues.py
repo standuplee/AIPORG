@@ -98,10 +98,15 @@ class EvidenceToIssuesWorkflow:
             for document_id, document in documents.items()
             if document.channel is not None
         }
+        query_by_document = {
+            document_id: document.query or "미분류"
+            for document_id, document in documents.items()
+        }
         candidates = self.issue_discovery_service.discover(
             facts,
             source_by_document=source_by_document,
             channel_by_document=channel_by_document,
+            query_by_document=query_by_document,
         )
         issues = self.issue_finalization_service.finalize(
             candidates,
