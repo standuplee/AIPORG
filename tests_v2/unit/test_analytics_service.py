@@ -152,6 +152,29 @@ def test_keyword_extraction_drops_particles_verbs_and_leaked_script_tokens():
         assert real_keyword in keywords
 
 
+def test_keyword_extraction_merges_adjacent_nouns_into_compound_phrases():
+    # 2026-10-19: comparing against a reference monthly report's keyword
+    # cards found they show compound phrases ("집중호우", "AI반도체",
+    # "행정통합공론화"), never isolated single nouns -- counting single noun
+    # morphemes had been splitting real compound words apart ("집중호우" as
+    # "집중"/"호우"). Adjacent (no space/particle between them) noun tokens
+    # must merge into one phrase instead.
+    doc = document(
+        title="소식",
+        body=(
+            "집중호우로 인한 재난대응 체계를 가동했다. AI반도체 클러스터 조성사업을 "
+            "추진한다. 행정통합 공론화를 시작했다."
+        ),
+    )
+    metrics = build([doc])
+    keywords = metrics["keyword_frequencies"]
+    for merged_phrase in ("집중호우", "재난대응", "ai반도체", "행정통합", "공론화"):
+        assert merged_phrase in keywords
+    # the merge must not swallow non-adjacent words into one phrase
+    assert "집중호우재난대응" not in keywords
+    assert "클러스터" in keywords and "클러스터" != "ai반도체"
+
+
 def test_keyword_extraction_falls_back_to_token_frequency_without_kiwipiepy(monkeypatch):
     from app.analytics import service as analytics_service
 

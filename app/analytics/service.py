@@ -23,14 +23,20 @@ from app.schemas.fact import FactSchema
 from app.schemas.issue import IssueSchema
 
 
-# General/proper nouns only (NNG/NNP) -- deliberately excludes bound nouns
-# (NNB, e.g. "것"/"수"/"때문") and every other part of speech. Real-data
-# testing (2026-10-19) found that plain character-token frequency surfaced
-# particles and verb forms ("있다", "위해", "지난", "함께") and leaked inline
-# JavaScript ("var") as top "keywords" -- none of those are ever tagged
-# NNG/NNP, so switching to POS-filtered nouns removes them without a
-# hand-maintained stopword list.
-_KEYWORD_NOUN_TAGS = frozenset({"NNG", "NNP"})
+# General/proper nouns (NNG/NNP) anchor a keyword phrase. Real-data testing
+# (2026-10-19) found that counting single noun morphemes split real compound
+# words apart ("집중호우" as "집중"/"호우", "재난대응" as "재난"/"대응") --
+# unlike a reference monthly report's keyword cards, which show compound
+# phrases ("집중호우", "AI반도체", "행정통합공론화"), never isolated single
+# nouns. A maximal run of directly-adjacent tokens (no whitespace/particle
+# between them) is merged into one phrase as long as the run contains at
+# least one real noun -- so a bound noun or number never surfaces alone
+# (NNB/SN carry no content by themselves, e.g. "것"/"수"/"때문", bare "123"),
+# but can be part of a longer phrase ("취임1개월평가" if written with no
+# spaces), and a lone foreign-script token ("AI", a leaked "var") is dropped
+# unless it's directly touching a real noun ("AI"+"반도체" -> "AI반도체").
+_KEYWORD_CORE_TAGS = frozenset({"NNG", "NNP"})
+_KEYWORD_MERGEABLE_TAGS = _KEYWORD_CORE_TAGS | frozenset({"SL", "SN", "NNB", "XSN"})
 _kiwi_instance = None
 _kiwi_unavailable = False
 
@@ -49,17 +55,40 @@ def _get_kiwi():
     return _kiwi_instance
 
 
+def _merge_adjacent_noun_phrases(text: str, kiwi) -> list[str]:
+    phrases: list[str] = []
+    current_forms: list[str] = []
+    current_tags: list[str] = []
+    previous_end: int | None = None
+
+    def flush() -> None:
+        if current_forms and any(tag in _KEYWORD_CORE_TAGS for tag in current_tags):
+            phrases.append("".join(current_forms))
+        current_forms.clear()
+        current_tags.clear()
+
+    for token in kiwi.tokenize(text):
+        adjacent = previous_end is not None and token.start == previous_end
+        if token.tag in _KEYWORD_MERGEABLE_TAGS:
+            if not adjacent and current_forms:
+                flush()
+            current_forms.append(token.form)
+            current_tags.append(token.tag)
+        else:
+            flush()
+        previous_end = token.start + token.len
+    flush()
+    return [phrase.casefold() for phrase in phrases if len(phrase) >= 2]
+
+
 def _extract_keyword_tokens(text: str) -> list[str]:
-    """Tokenize to keyword candidates: Korean nouns via kiwipiepy, with a
-    plain-regex fallback (numbers excluded) if kiwipiepy is unavailable."""
+    """Tokenize to keyword-phrase candidates: adjacent-noun compounds via
+    kiwipiepy, with a plain-regex fallback (numbers excluded, no merging)
+    if kiwipiepy is unavailable."""
 
     kiwi = _get_kiwi()
     if kiwi is not None:
-        return [
-            token.form.casefold()
-            for token in kiwi.tokenize(text)
-            if token.tag in _KEYWORD_NOUN_TAGS and len(token.form) >= 2
-        ]
+        return _merge_adjacent_noun_phrases(text, kiwi)
     return re.findall(r"[^\W\d_]{2,}", text.casefold())
 
 
@@ -187,7 +216,7 @@ class AnalyticsService:
             "analysis_period": analysis_period.model_dump(mode="json"),
             "comparison_period": comparison_period.model_dump(mode="json") if comparison_period else None,
             "sentiment": "existing_metadata_sentiment_only",
-            "keywords": "kiwipiepy_NNG_NNP_nouns_min_length_2_casefold"
+            "keywords": "kiwipiepy_adjacent_noun_phrase_merge_min_length_2_casefold"
             if _get_kiwi() is not None
             else "title_and_body_casefold_letter_tokens_min_length_2",
             "comparison": "observed_document_totals_without_period_length_normalization",
