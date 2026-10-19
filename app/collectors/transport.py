@@ -24,6 +24,29 @@ class HttpResponse:
 RequestFunction = Callable[..., HttpResponse]
 
 
+def _decode_response_body(response: Any) -> str:
+    """Decode a ``requests`` response body, checking the HTML's own declared
+    charset in addition to the HTTP header.
+
+    ``response.text`` only trusts the HTTP ``Content-Type`` header's charset
+    (or an RFC default of ISO-8859-1 for ``text/*`` without one) -- it never
+    looks at an HTML page's own ``<meta charset>``. Real-data collection
+    (2026-10-19) found this mis-decodes some Korean news pages that declare
+    their encoding only in the HTML (observed: legitimate UTF-8 body text
+    mangled into "ëê¸°ê³ê°"-style garbage, about 0.4% of collected documents).
+    ``BeautifulSoup``'s ``UnicodeDammit`` checks the HTTP header, then an
+    HTML meta charset, then falls back to encoding detection -- the standard
+    fix for this exact gap.
+    """
+
+    from bs4 import UnicodeDammit
+
+    dammit = UnicodeDammit(response.content, is_html=True)
+    if dammit.unicode_markup is not None:
+        return dammit.unicode_markup
+    return response.text
+
+
 class RequestsTransport:
     """Async facade over requests with bounded retry behavior."""
 
@@ -104,5 +127,5 @@ class RequestsTransport:
         return HttpResponse(
             status_code=response.status_code,
             headers=dict(response.headers),
-            body=response.text,
+            body=_decode_response_body(response),
         )
