@@ -1,6 +1,6 @@
 # AIPORG 공통 작업 인계
 
-최종 정리: 2026-10-19. 작업 시작 시 실제 파일과 `git status`를 확인하고 사용자의 최신 요청을 우선한다. 이 문서는 현재 상태 요약이며, 과거 5~23차 상세 기록은 [구현 계획의 이관 기록](docs/superpowers/plans/2026-09-08-aiporg2-implementation.md#2026-10-19-인계-문서에서-이관한-상세-작업-기록)에 있다.
+최종 정리: 2026-10-20. 작업 시작 시 실제 파일과 `git status`를 확인하고 사용자의 최신 요청을 우선한다. 이 문서는 현재 상태 요약이며, 과거 5~23차 상세 기록은 [구현 계획의 이관 기록](docs/superpowers/plans/2026-09-08-aiporg2-implementation.md#2026-10-19-인계-문서에서-이관한-상세-작업-기록)에 있다.
 
 ## 현재 목표와 구현 방향
 
@@ -25,6 +25,7 @@
 - 네이버·다음·유튜브·구글·커뮤니티 수집기, 키워드×채널 배치 workflow가 있다. 같은 프로젝트에서는 수집을 한 번만 실행하며 재수집은 새 프로젝트로 진행한다.
 - 기사 본문은 `trafilatura`로 추출하고 transport에서 인코딩을 복구한다. `documents` PK는 `(project_id, id)`이며 같은 URL을 다른 프로젝트에서 저장할 수 있다(22차 migration).
 - 이슈는 근거 문서의 수집 키워드 기준으로 그룹화한다. 통계는 canonical 문서와 문서 ID 근거를 사용한다. **문서/채널 단위 감성 집계**(AnalyticsService)는 여전히 기존 metadata 라벨만 세고 미지정은 미분류다 — 이건 안 바뀜. 비교기간 데이터가 없으면 증감률을 만들지 않는다.
+- **통계 집계는 이제 별도 OS 프로세스에서 백그라운드로 실행된다**(`app/analytics/jobs.py::AnalyticsJobManager`, spawn 방식, 서버 프로세스당 1건, DB 파일 단위 `fcntl.flock`로 중복 실행 차단). Streamlit UI는 `st.json(snapshot.metrics)`로 전체 metrics를 더 이상 렌더링하지 않는다 — 실데이터에서 수 MB·최대 46,542 키워드로 브라우저 탭이 죽던 문제의 원인이었다(2026-10-19 기록). 대신 SQLite JSON1(`json_extract`/`json_each`)로 SQL에서 상한을 건 요약만 Python으로 가져온다(`AnalyticsRepository.get_latest_summary`, 상위 30개, 키 300자 상한). 문서 목록도 `DocumentRepository.list_canonical_page`로 50건씩 페이지네이션한다(body/metadata는 조회하지 않음).
 - **이슈 세부(subissue) 단위 감성·입장은 이제 실제로 분류된다**(`app/sentiment/service.py`, 사전 기반, 네트워크·LLM 없음). 감성(긍정/부정/중립/혼재)과 입장(찬성/반대/중립/혼재/해당없음)은 서로 다른 축으로 별도 분류하며, 이전엔 전부 고정 NEUTRAL/NOT_APPLICABLE이었다. `NarrativeContext.positive_reasons`/`negative_reasons`도 이제 분류된 fact 요약으로 실제로 채워진다(최대 5개, 부족하면 있는 만큼만 — 채우려고 지어내지 않음).
 - 서술은 프로젝트 단위 버전이다. 이슈를 달리 선택해 생성하면 같은 프로젝트의 새 버전으로 저장된다.
 - 시각자료는 VIS-02 채널 비중·VIS-07 TOP10만 구현됐다. 표시 항목 편집·버전 저장·개별 승인을 지원한다.
@@ -53,18 +54,19 @@ Python 3.12 기반 `.venv`에 `requirements-dev.txt`를 설치하고 `.env.examp
 
 앱이 시작 시 Alembic migration을 적용한다. 기본 DB는 `aiporg2.db`이고 환경변수 변경 후 프로세스를 재시작해야 한다. 상세 설치 명령은 [README](README.md#빠른-시작--streamlit-ui)에 있다.
 
-전체 테스트 결과는 **395 passed**다.
+전체 테스트 결과는 **417 passed**다.
 
-## 이번 작업: 이슈 단위 감성·입장 분류 + 서술 이유 실데이터 채움
+## 직전 완료 작업: 통계 집계 백그라운드 실행 + 사이드바 진행 표시
 
-- 사용자 요청: 7월 참고 PDF의 "긍정/부정 여론 주요 원인" 화면을 보여주며, 이슈별 감성(긍정/부정/중립/혼재)과 입장(찬성/반대)이 어느 수준인지 질문 → 설계·구현까지 진행 승인.
-- 코드 확인 결과 분류기가 전혀 없었고(`metadata["sentiment"]`를 쓰는 코드가 0줄), `IssueFinalizationService`가 모든 subissue를 고정 NEUTRAL로 채우고 있었다. 1.0(`aiporg/analyze/sentiment.py`, `aiporg/llm/sentiment_llm.py`)에 사전·LLM 하이브리드 분류기가 있었으나 2.0에 포팅되지 않았었고, "주요 원인"도 1.0 실제로는 polarity당 대표 문서 1개뿐이라 참고 PDF 수준(5~6개, 구체적 %)은 1.0도 자동 생성한 적이 없었음을 확인.
-- 감성(일반 긍/부/중/혼재)과 입장(정책 찬/반)을 **서로 다른 두 축**으로 분리 설계(요구사항 §4.3). 신규 `StanceLabel` enum(`app/core/enums.py`), `IssueDetailSchema.stance` 필드 추가(기존 pinned contract test 갱신 포함), 신규 `app/sentiment/service.py::SentimentService`(사전 기반, 네트워크·LLM 없음)가 fact claim 텍스트에서 감성·입장을 각각 분류. `IssueFinalizationService`가 고정값 대신 이 분류 결과를 사용하도록 교체.
-- 신규 `app/narrative/reasons.py`: `derive_narrative_reasons()`(이슈의 분류된 subissue에서 긍정/부정 요약을 최대 5개까지, 모자라면 있는 만큼만 추출 — 채우려고 생성 안 함), `aggregate_issue_sentiment()`(이슈 전체 대표 감성). `streamlit_app/console.py::page_narrative`의 `positive_reasons=[]/negative_reasons=[]/subissues[0].sentiment` 임시값을 전부 이걸로 교체. "4. 통계·이슈 검토" 표에 "세부 입장" 열 추가.
-- 신규 마이그레이션 `20261019_000003`(issue_subissues에 stance 컬럼 추가, 빈 DB·실제 dev DB 양쪽에 적용 확인).
-- 라이브 검증: 실제 fact 3건("일자리 확대…성과", "행정통합에 반대", "사업 지연…비판")을 실제 저장소 경로로 돌려 각각 POSITIVE/신규 OPPOSE(감성은 NEUTRAL — 반대 자체가 부정적 **감성** 단어는 아님을 확인)/NEGATIVE로 정확히 분류되고 `positive_reasons`/`negative_reasons`가 올바르게 채워지는 것을 확인.
-- 신규 unit test 12개(SentimentService 6, narrative/reasons 5, IssueFinalizationService 실분류 1) + 기존 pinned contract 2개 갱신. `tests_v2`+`tests` **395 passed**(383 + 12).
-- 다음 행동(결정 필요하면): 1.0의 LLM 배치 분류기 포팅 여부(사전 기반의 정확도 한계 보완), "주요 원인"을 fact 단위가 아니라 여러 근거를 묶은 요약으로 만들지 여부 — 둘 다 이번엔 범위 밖으로 남김.
+- 사용자 요청: 통계 집계 시 브라우저 탭이 메모리 부족으로 종료·새로고침됨 → 백그라운드 실행 + 사이드바 진행 표시 요청. 복합 검색어가 모든 단어 포함 조건인지도 질문.
+- 원인: `page_analytics`가 `IssuesToAnalyticsWorkflow.run()`을 Streamlit 프로세스 안에서 동기 실행하고 `st.json(snapshot.metrics)`로 전체 metrics를 렌더링했다. 실데이터 기준 metrics JSON이 3.8~8.1MB, 최대 46,542 키워드·124,774 근거 참조였다.
+- [사전 합의된 설계](docs/superpowers/specs/2026-10-19-analytics-background-design.md)대로 구현: 새 schema/DB 테이블 없이 기존 repository/workflow만 사용(AGENTS.md 1·3 준수).
+  - `app/repositories/sqlalchemy.py`: `SqlAlchemyAnalyticsRepository.get_latest_summary()`(SQLite `json_extract`/`json_each`로 SQL에서 상위 30개·300자 상한까지 걸러 반환, 전체 metrics 컬럼은 절대 SELECT하지 않음), `SqlAlchemyDocumentRepository.count_canonical()`/`list_canonical_page()`(50건 상한, body/metadata 미조회), `SqlAlchemyEvidenceRepository.count_by_project()`. 세 Repository 프로토콜에도 동일 시그니처 추가.
+  - `app/analytics/jobs.py`(신규): `AnalyticsJobManager` — `multiprocessing`(spawn)로 집계 1건을 별도 프로세스에서 실행, 진행 상황은 throttled(0.2초)된 `Queue` IPC로 전달, 부모 프로세스 종료 감지로 좀비 방지, DB 파일 단위 `fcntl.flock`으로 다른 서버 프로세스와의 중복 실행도 차단. 작업자 프로세스는 자체 DB 세션을 만들며 ORM 세션이나 Streamlit 객체가 프로세스 경계를 넘지 않는다.
+  - `streamlit_app/analytics_ui.py`(신규): 사이드바 진행 상태, 제한된 요약, 페이지네이션 문서 표 렌더링 — 순수 렌더 함수만 두고 폴링·제출은 `console.py`가 호출.
+  - `streamlit_app/console.py::page_analytics`: "통계 집계 실행" 버튼이 `manager.submit()`으로 작업을 제출하고 즉시 반환(동기 대기 없음). `st.json(snapshot.metrics)` 전체 렌더링을 제거하고 `get_latest_summary()` 기반 요약으로 교체. 고유 문서 목록을 전수 조회에서 50건 페이지네이션으로 교체. `main()`에 `st.fragment(run_every=3)` 사이드바 상태 위젯 추가(페이지 이동·새로고침 후에도 같은 서버의 작업 상태 유지). "2. 수집 설정·실행"의 키워드 입력 캡션에 복합 검색어가 AND 조건을 보장하지 않는다는 안내를 추가(코드 확인: 각 줄 전체를 그대로 `query`/`q` 파라미터로 전달, AIPORG 자체의 전체-단어-포함 필터는 없음).
+- 테스트: `tests_v2/unit/test_analytics_ui_queries.py`(bounded SQL 검증, 3건), `tests_v2/unit/test_analytics_jobs.py`(프로세스/IPC/락 머신 7건, 모듈 레벨 fake worker 필요 — spawn은 타겟을 import 참조로 pickle), `tests_v2/integration/test_analytics_jobs_integration.py`(실제 spawn 프로세스로 Alembic 마이그레이션된 임시 SQLite에 커밋/롤백 검증, 2건), `tests_v2/unit/test_analytics_ui.py`(`AppTest.from_function` 렌더 함수 7건 — 이 함수는 대상 함수의 소스만 재실행하고 모듈 전역(import, 상수)은 안 가져오므로, 테스트 래퍼가 자체적으로 import하도록 작성). 전체 `tests_v2`+`tests` **417 passed**(409 + 7 UI, 통계 집계 전용 테스트는 409건에 포함).
+- 다음 행동(결정 필요 없으면 보류): 실제 브라우저에서 긴 집계를 돌려 사이드바 갱신 체감 확인(자동화 테스트는 UI 함수 단위까지만 검증했고 실제 브라우저 메모리 개선을 직접 재현하지는 않았다). `AnalyticsJobManager`는 서버 프로세스당 1건만 허용하므로 여러 프로젝트를 동시에 집계할 수 없다 — 필요해지면 재설계 대상.
 
 ## 기능 완료 시 커밋·푸시 규칙
 - 기능 단위의 구현과 필요한 테스트가 완료되면 `HANDOFF.md`를 최신 상태로 갱신한 뒤 해당 기능의 변경만 선별하여 커밋하고 원격 브랜치에 푸시한다.

@@ -15,3 +15,8 @@ class AnalyticsRepository(SessionScopedRepository, Protocol):
 
     def get_latest(self, project_id: ProjectId) -> AnalyticsSnapshotRead | None:
         """Return the latest analytics snapshot for a project."""
+
+    def get_latest_summary(self, project_id: ProjectId) -> dict[str, object] | None:
+        """Return a bounded, UI-safe projection of the latest snapshot's
+        metrics (no full keyword/provenance collections) -- see
+        SqlAlchemyAnalyticsRepository.get_latest_summary for why."""

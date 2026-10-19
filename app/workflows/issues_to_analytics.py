@@ -12,6 +12,8 @@ denominators (requirements doc §4.2), done here rather than inside
 ``AnalyticsService`` so its already-tested counting logic is untouched.
 """
 
+from collections.abc import Callable
+
 from app.analytics.service import AnalyticsService
 from app.core.enums import WorkflowState
 from app.core.state_machine import InvalidStateTransitionError
@@ -34,7 +36,9 @@ class IssuesToAnalyticsWorkflow:
         issue_repository: IssueRepository,
         analytics_repository: AnalyticsRepository,
         analytics_service: AnalyticsService,
+        on_progress: Callable[[str, int, int], None] | None = None,
     ) -> None:
+        self._progress = on_progress or (lambda phase, completed, total: None)
         self.project_repository = project_repository
         self.document_repository = document_repository
         self.fact_repository = fact_repository
@@ -43,6 +47,7 @@ class IssuesToAnalyticsWorkflow:
         self.analytics_service = analytics_service
 
     def run(self, project_id: ProjectId, run: VersionedRunSchema) -> AnalyticsSnapshotRead:
+        self._progress("loading", 0, 0)
         workflow = self.project_repository.get_workflow(project_id)
         if workflow is None:
             raise ValueError("project does not exist")
@@ -86,6 +91,7 @@ class IssuesToAnalyticsWorkflow:
                     ),
                 },
             })
+        self._progress("saving", 0, 0)
         saved = self.analytics_repository.create(snapshot)
         self.project_repository.advance_workflow(project_id, WorkflowState.ANALYTICS_COMPLETED)
         return saved

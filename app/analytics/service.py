@@ -101,6 +101,9 @@ class AnalyticsService:
     entities. Absent comparison observations do not establish a zero baseline.
     """
 
+    def __init__(self, *, on_progress: Callable[[str, int, int], None] | None = None):
+        self._progress = on_progress or (lambda phase, completed, total: None)
+
     def build(
         self,
         project_id: ProjectId,
@@ -153,11 +156,13 @@ class AnalyticsService:
 
         keyword_counts: Counter[str] = Counter()
         keyword_documents: dict[str, list[str]] = defaultdict(list)
-        for document in current:
+        self._progress("keywords", 0, len(current))
+        for completed, document in enumerate(current, start=1):
             counts = Counter(_extract_keyword_tokens(f"{document.title}\n{document.body}"))
             keyword_counts.update(counts)
             for token in sorted(counts):
                 keyword_documents[token].append(str(document.document_id))
+            self._progress("keywords", completed, len(current))
 
         comparison = {
             "status": "period_not_configured" if comparison_period is None else "no_comparison_documents",
@@ -175,6 +180,7 @@ class AnalyticsService:
                 change_percent=(len(current) - len(previous)) / len(previous) * 100,
             )
 
+        self._progress("issues", 0, len(issues))
         facts_by_id = facts_by_id or {}
         issue_metrics = []
         current_by_id = {document.document_id: document for document in current}
@@ -222,6 +228,7 @@ class AnalyticsService:
             "comparison": "observed_document_totals_without_period_length_normalization",
             "coverage": "stored_documents_only_not_verified_collection_completeness",
         }
+        self._progress("fingerprint", 0, 0)
         fingerprint = {
             "basis": basis,
             "documents": [item.model_dump(mode="json") for item in ordered],

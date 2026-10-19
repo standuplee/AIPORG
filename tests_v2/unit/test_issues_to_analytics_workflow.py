@@ -135,3 +135,19 @@ def test_shared_fact_is_loaded_once_with_project_scope():
     ]
     workflow.run(project_id, run)
     workflow.fact_repository.get.assert_called_once_with(project_id, fact_id)
+
+
+def test_workflow_progress_marks_loading_and_saving_not_commit():
+    workflow, project_id, run = setup_workflow()
+    events = []
+    observed = IssuesToAnalyticsWorkflow(
+        project_repository=workflow.project_repository,
+        document_repository=workflow.document_repository,
+        fact_repository=workflow.fact_repository,
+        issue_repository=workflow.issue_repository,
+        analytics_repository=workflow.analytics_repository,
+        analytics_service=workflow.analytics_service,
+        on_progress=lambda *event: events.append(event),
+    )
+    observed.run(project_id, run)
+    assert events == [("loading", 0, 0), ("saving", 0, 0)]

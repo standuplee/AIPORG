@@ -49,7 +49,8 @@ import streamlit as st
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from app.analytics.service import AnalyticsService
+import analytics_ui
+
 from app.cleaning.service import CleaningService
 from app.collectors.community import CommunityCollector, load_policies as load_community_policies
 from app.collectors.daum_news import DaumNewsCollector
@@ -112,7 +113,6 @@ from app.visualization.service import (
     VisualizationRenderService,
 )
 from app.workflows.evidence_to_issues import EvidenceToIssuesWorkflow
-from app.workflows.issues_to_analytics import IssuesToAnalyticsWorkflow
 from app.workflows.multi_query_collection_to_evidence import (
     CollectionRequest,
     MultiQueryCollectionToEvidenceWorkflow,
@@ -362,7 +362,11 @@ def page_collect(factory: sessionmaker) -> None:
         )
         st.caption(
             "기본 조사어(지역/기관/인물)는 자동으로 추가되지 않는다. "
-            "위에 입력한 줄 전체가 이번 수집의 검색어다."
+            "위에 입력한 줄 전체가 이번 수집의 검색어다. 한 줄에 여러 단어를 "
+            "써도 AIPORG가 '모든 단어 포함'을 강제하지 않는다 — 각 줄 전체를 "
+            "그대로 검색 API에 전달하고(네이버·다음은 query, 구글·유튜브는 q), "
+            "단어가 실제로 다 포함되는지는 각 검색엔진의 토큰화·유사어 처리에 "
+            "달려 있다."
         )
 
         st.markdown("**실행할 채널**")
@@ -551,35 +555,41 @@ def page_analytics(factory: sessionmaker) -> None:
     with session_scope(factory) as session:
         project_repository = SqlAlchemyProjectRepository(session)
         workflow = project_repository.get_workflow(project_id)
-        canonical_documents = SqlAlchemyDocumentRepository(session).list_canonical(project_id)
-        evidence = SqlAlchemyEvidenceRepository(session).list_by_project(project_id)
+        document_count = SqlAlchemyDocumentRepository(session).count_canonical(project_id)
+        evidence_count = SqlAlchemyEvidenceRepository(session).count_by_project(project_id)
     if workflow is None:
         st.error("프로젝트를 찾지 못했다.")
         return
 
     col1, col2 = st.columns(2)
-    col1.metric("고유(canonical) 문서 수", len(canonical_documents))
-    col2.metric("Evidence 수", len(evidence))
+    col1.metric("고유(canonical) 문서 수", document_count)
+    col2.metric("Evidence 수", evidence_count)
     st.caption(f"현재 workflow 상태: `{workflow.workflow_state.value}`")
 
-    if not canonical_documents:
+    if document_count == 0:
         st.info("아직 Evidence까지 도달한 문서가 없다. 먼저 수집을 실행하라.")
         return
 
     st.subheader("고유 문서 목록")
-    st.dataframe(
-        [
-            {
-                "제목": document.title,
-                "출처": document.source,
-                "채널": document.channel.value if document.channel else None,
-                "게시일": document.published_at.isoformat() if document.published_at else None,
-                "URL": document.canonical_url,
-            }
-            for document in canonical_documents
-        ],
-        use_container_width=True,
+    page_size = 50
+    page_key = f"analytics-doc-page-{project_id}"
+    page = st.session_state.get(page_key, 0)
+    max_page = max((document_count - 1) // page_size, 0)
+    page = min(page, max_page)
+    with session_scope(factory) as session:
+        document_rows = SqlAlchemyDocumentRepository(session).list_canonical_page(
+            project_id, limit=page_size, offset=page * page_size,
+        )
+    analytics_ui.render_document_page(
+        document_rows, offset=page * page_size, page_size=page_size, total=document_count,
     )
+    nav_prev, nav_next = st.columns(2)
+    if nav_prev.button("이전 페이지", disabled=page <= 0, key=f"{page_key}-prev"):
+        st.session_state[page_key] = page - 1
+        st.rerun()
+    if nav_next.button("다음 페이지", disabled=page >= max_page, key=f"{page_key}-next"):
+        st.session_state[page_key] = page + 1
+        st.rerun()
 
     st.divider()
     st.subheader("이슈 확정")
@@ -639,38 +649,37 @@ def page_analytics(factory: sessionmaker) -> None:
     st.divider()
     st.subheader("통계 집계 (AnalyticsSnapshot)")
     if current is WorkflowState.ISSUES_COMPLETED:
-        if st.button("통계 집계 실행"):
-            with session_scope(factory) as session:
-                analytics_workflow = IssuesToAnalyticsWorkflow(
-                    project_repository=SqlAlchemyProjectRepository(session),
-                    document_repository=SqlAlchemyDocumentRepository(session),
-                    fact_repository=SqlAlchemyFactRepository(session),
-                    issue_repository=SqlAlchemyIssueRepository(session),
-                    analytics_repository=SqlAlchemyAnalyticsRepository(session),
-                    analytics_service=AnalyticsService(),
-                )
+        settings = get_settings()
+        manager = analytics_ui.get_job_manager(settings.database_url)
+        job_state = manager.poll()
+        same_project = job_state.get("project_id") == str(project_id)
+        if job_state.get("status") == "running" and same_project:
+            st.info("통계 집계가 백그라운드에서 실행 중이다. 사이드바에서 진행 상황을 볼 수 있다.")
+        else:
+            st.caption(
+                "집계는 별도 프로세스에서 실행된다 — 이 화면을 벗어나거나 새로고침해도 "
+                "계속 진행되며, 진행 상황은 사이드바에 표시된다."
+            )
+            if st.button("통계 집계 실행"):
                 run = VersionedRunSchema(
                     run_id=uuid4(),
                     input_version="issues:v1",
                     output_version="analytics:v1",
                     created_at=datetime.now(timezone.utc),
                 )
-                try:
-                    analytics_workflow.run(project_id, run)
-                except (ValueError, InvalidStateTransitionError) as exc:
-                    st.error(f"통계 집계 실패: {exc}")
-                else:
-                    st.success("통계 집계 완료.")
+                if manager.submit(project_id, run):
                     st.rerun()
+                else:
+                    st.error(manager.poll().get("error", "이미 다른 집계가 실행 중이다."))
         return
     if not _state_at_least(current, WorkflowState.ANALYTICS_COMPLETED):
         return
 
     with session_scope(factory) as session:
-        snapshot = SqlAlchemyAnalyticsRepository(session).get_latest(project_id)
-    if snapshot is not None:
+        summary = SqlAlchemyAnalyticsRepository(session).get_latest_summary(project_id)
+    if summary is not None:
         st.success("통계 집계 완료됨 — '5. 서술 편집'에서 이슈별 초안을 생성할 수 있다.")
-        st.json(snapshot.metrics)
+        analytics_ui.render_analytics_summary(summary)
 
 
 def _template_sentences(
@@ -1231,9 +1240,21 @@ def page_output(factory: sessionmaker) -> None:
     )
 
 
+@st.fragment(run_every=3)
+def _render_analytics_job_sidebar_status() -> None:
+    """Polls the one shared background job manager on a timer so the
+    sidebar reflects progress across page changes and browser reloads
+    without a full-page rerun."""
+
+    settings = get_settings()
+    manager = analytics_ui.get_job_manager(settings.database_url)
+    analytics_ui.render_job_sidebar_status(manager.poll())
+
+
 def main() -> None:
     st.set_page_config(page_title="AIPORG 2.0 콘솔", layout="wide")
     st.sidebar.title("AIPORG 2.0")
+    _render_analytics_job_sidebar_status()
     page = st.sidebar.radio(
         "화면",
         [

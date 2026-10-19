@@ -13,6 +13,16 @@ class DocumentRepository(SessionScopedRepository, Protocol):
     def list_canonical(self, project_id: ProjectId) -> list[CleanDocument]:
         """Return cleaned project documents excluding persisted duplicate members."""
 
+    def count_canonical(self, project_id: ProjectId) -> int:
+        """Return the canonical document count without loading any rows."""
+
+    def list_canonical_page(
+        self, project_id: ProjectId, *, limit: int = 50, offset: int = 0,
+    ) -> list[dict[str, object]]:
+        """Return a bounded, display-only page of canonical documents (no
+        body/metadata, every string field length-capped) -- see
+        SqlAlchemyDocumentRepository.list_canonical_page for why."""
+
     def upsert_raw(
         self,
         project_id: ProjectId,

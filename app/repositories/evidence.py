@@ -18,3 +18,6 @@ class EvidenceRepository(SessionScopedRepository, Protocol):
 
     def list_by_project(self, project_id: ProjectId) -> list[EvidenceRead]:
         """Return project evidence in deterministic creation order."""
+
+    def count_by_project(self, project_id: ProjectId) -> int:
+        """Return the evidence count without loading any evidence rows."""

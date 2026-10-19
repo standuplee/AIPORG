@@ -183,3 +183,28 @@ def test_keyword_extraction_falls_back_to_token_frequency_without_kiwipiepy(monk
     metrics = build([doc])
     assert metrics["keyword_frequencies"] == {"정책": 2, "지원": 1}
     assert metrics["basis"]["keywords"] == "title_and_body_casefold_letter_tokens_min_length_2"
+
+
+def test_progress_reports_actual_documents_without_changing_metrics():
+    docs = [document(), document()]
+    events = []
+    expected = build(docs)
+    result = AnalyticsService(on_progress=lambda *event: events.append(event)).build(
+        uuid4(),
+        VersionedRunSchema(run_id=uuid4(), input_version="issues:v1", output_version="analytics:v1", created_at=NOW),
+        docs, analysis_period=PERIOD, comparison_period=PREVIOUS,
+    )
+    assert result.metrics == expected
+    keyword_events = [event for event in events if event[0] == "keywords"]
+    assert keyword_events == [("keywords", 0, 2), ("keywords", 1, 2), ("keywords", 2, 2)]
+    assert events[-1] == ("fingerprint", 0, 0)
+
+
+def test_empty_progress_does_not_invent_a_completed_document():
+    events = []
+    AnalyticsService(on_progress=lambda *event: events.append(event)).build(
+        uuid4(),
+        VersionedRunSchema(run_id=uuid4(), input_version="issues:v1", output_version="analytics:v1", created_at=NOW),
+        [], analysis_period=PERIOD, comparison_period=PREVIOUS,
+    )
+    assert ("keywords", 0, 0) in events

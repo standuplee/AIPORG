@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import datetime, timezone
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -215,6 +216,9 @@ class SqlAlchemyCollectionRunRepository(_Repository):
 
 
 class SqlAlchemyDocumentRepository(_Repository):
+    _MAX_PAGE_SIZE = 50
+    _MAX_FIELD_LENGTH = 300
+
     def list_canonical(self, project_id: ProjectId) -> list[CleanDocument]:
         duplicate = select(DocumentDuplicate.document_id).where(
             DocumentDuplicate.project_id == project_id,
@@ -226,6 +230,57 @@ class SqlAlchemyDocumentRepository(_Repository):
             ~duplicate,
         ).order_by(Document.id)).all()
         return [_clean_document(row) for row in rows]
+
+    def _canonical_filter(self, project_id: ProjectId):
+        duplicate = select(DocumentDuplicate.document_id).where(
+            DocumentDuplicate.project_id == project_id,
+            DocumentDuplicate.document_id == Document.id,
+        ).exists()
+        return (
+            Document.project_id == project_id,
+            Document.cleaned_at.is_not(None),
+            ~duplicate,
+        )
+
+    def count_canonical(self, project_id: ProjectId) -> int:
+        """A bare count -- no document column is selected."""
+
+        return self.session.scalar(
+            select(func.count()).select_from(Document).where(*self._canonical_filter(project_id))
+        )
+
+    def list_canonical_page(
+        self, project_id: ProjectId, *, limit: int = 50, offset: int = 0,
+    ) -> list[dict[str, object]]:
+        """A bounded, display-only page of canonical documents.
+
+        ``body``/``metadata`` are never selected -- a UI list doesn't need
+        full article text -- and every string field is truncated to
+        ``_MAX_FIELD_LENGTH`` so one outsized title/source can't balloon
+        the page payload. ``limit`` is clamped to ``_MAX_PAGE_SIZE``
+        regardless of what's requested.
+        """
+
+        bounded_limit = max(0, min(limit, self._MAX_PAGE_SIZE))
+        rows = self.session.execute(
+            select(
+                Document.title, Document.source, Document.channel,
+                Document.published_at, Document.canonical_url,
+            ).where(*self._canonical_filter(project_id))
+            .order_by(Document.id)
+            .offset(offset)
+            .limit(bounded_limit)
+        ).all()
+        return [
+            {
+                "title": title[: self._MAX_FIELD_LENGTH],
+                "source": source[: self._MAX_FIELD_LENGTH],
+                "channel": channel,
+                "published_at": _aware(published_at),
+                "canonical_url": canonical_url[: self._MAX_FIELD_LENGTH],
+            }
+            for title, source, channel, published_at, canonical_url in rows
+        ]
 
     def upsert_raw(
         self,
@@ -453,6 +508,14 @@ class SqlAlchemyEvidenceRepository(_Repository):
             ))
         return results
 
+    def count_by_project(self, project_id: ProjectId) -> int:
+        """A bare count -- no excerpt/body column is ever selected, so a UI
+        summary doesn't need to load potentially large evidence text."""
+
+        return self.session.scalar(
+            select(func.count()).select_from(Evidence).where(Evidence.project_id == project_id)
+        )
+
 
 class SqlAlchemyFactRepository(_Repository):
     def save_batch(self, project_id: ProjectId, facts: list[FactSchema]) -> list[FactRead]:
@@ -595,6 +658,9 @@ class SqlAlchemyIssueRepository(_Repository):
 
 
 class SqlAlchemyAnalyticsRepository(_Repository):
+    _MAX_SUMMARY_ENTRIES = 30
+    _MAX_SUMMARY_KEY_LENGTH = 300
+
     def create(self, snapshot: AnalyticsSnapshotSchema) -> AnalyticsSnapshotRead:
         self.session.add(AnalyticsSnapshot(
             project_id=snapshot.project_id,
@@ -618,6 +684,80 @@ class SqlAlchemyAnalyticsRepository(_Repository):
             run=_versioned_run(row),
             metrics=row.metrics,
         )
+
+    def get_latest_summary(self, project_id: ProjectId) -> dict[str, object] | None:
+        """A bounded, UI-safe projection of the latest snapshot's metrics.
+
+        Real collected data put this JSON at several MB with up to ~46k
+        keywords and ~125k keyword->document provenance references
+        (2026-10-19, HANDOFF.md) -- rendering it whole in Streamlit crashed
+        the browser tab. This never pulls the full metrics column into
+        Python: SQLite's JSON1 functions (json_extract/json_each) do the
+        filtering and top-30 ordering in SQL, so only the bounded result
+        rows ever cross into this process.
+        """
+
+        row_id = self.session.scalar(
+            select(AnalyticsSnapshot.id)
+            .where(AnalyticsSnapshot.project_id == project_id)
+            .order_by(AnalyticsSnapshot.created_at.desc(), AnalyticsSnapshot.id.desc())
+        )
+        if row_id is None:
+            return None
+
+        unique_documents, comment_count, comparison_json = self.session.execute(
+            select(
+                func.json_extract(AnalyticsSnapshot.metrics, "$.unique_documents"),
+                func.json_extract(AnalyticsSnapshot.metrics, "$.comment_count"),
+                func.json_remove(
+                    func.json_extract(AnalyticsSnapshot.metrics, "$.comparison"),
+                    "$.document_ids",
+                ),
+            ).where(AnalyticsSnapshot.id == row_id)
+        ).one()
+
+        channel_mentions = dict(
+            self._bounded_metric_entries(row_id, "$.channel_mentions")
+        )
+        sentiment_distribution = dict(
+            self._bounded_metric_entries(row_id, "$.sentiment_distribution")
+        )
+        top_keywords = [
+            {"keyword": keyword, "count": count}
+            for keyword, count in self._bounded_metric_entries(row_id, "$.keyword_frequencies")
+        ]
+        return {
+            "unique_documents": unique_documents or 0,
+            "comment_count": comment_count or 0,
+            "channel_mentions": channel_mentions,
+            "sentiment_distribution": sentiment_distribution,
+            "comparison": json.loads(comparison_json) if comparison_json else None,
+            "top_keywords": top_keywords,
+        }
+
+    def _bounded_metric_entries(self, row_id: UUID, json_path: str) -> list[tuple[str, int]]:
+        """Top ``_MAX_SUMMARY_ENTRIES`` integer-valued entries of one JSON
+        object path, ranked by value descending in SQL (``json_each`` +
+        ``ORDER BY`` + ``LIMIT`` -- never a full Python-side scan of the
+        object). JSON booleans are a distinct ``json_each.type`` ('true'/
+        'false'), so filtering to ``type == 'integer'`` excludes them
+        without the ``isinstance(x, int)`` trap (bool is an int subclass).
+        """
+
+        entries = func.json_each(AnalyticsSnapshot.metrics, json_path).table_valued(
+            "key", "value", "type", joins_implicitly=True
+        )
+        stmt = (
+            select(entries.c.key, entries.c.value)
+            .select_from(AnalyticsSnapshot)
+            .where(AnalyticsSnapshot.id == row_id, entries.c.type == "integer")
+            .order_by(entries.c.value.desc(), entries.c.key.asc())
+            .limit(self._MAX_SUMMARY_ENTRIES)
+        )
+        return [
+            (key[: self._MAX_SUMMARY_KEY_LENGTH], value)
+            for key, value in self.session.execute(stmt).all()
+        ]
 
 
 class SqlAlchemyNarrativeRepository(_Repository):
