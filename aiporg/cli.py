@@ -1,7 +1,7 @@
 """AIPORG 실행 진입점.
 
 사용법:
-    python -m aiporg.cli run --config config/chungnam_202603.yaml
+    python -m aiporg.cli run --config config/chungnam_202606.yaml
     python -m aiporg.cli run --config <cfg> --formats docx,html,md --out output/
 
 동작:

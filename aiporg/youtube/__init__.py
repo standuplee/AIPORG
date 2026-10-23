@@ -11,7 +11,6 @@ JSON 을 생성한다. 무료 Quota 내 동작을 원칙으로 한다.
     analyzer   -> 키워드/감성/토픽/이슈/트렌드/요약
     service    -> 수집→분석→요약 오케스트레이션 (+캐싱)
     report     -> Report JSON 생성 (유튜브 채널 한정 문체)
-    api        -> FastAPI 라우터
 """
 from .config import YouTubeConfig
 from .service import YouTubeService
