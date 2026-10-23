@@ -1,7 +1,15 @@
 from uuid import uuid4
 
+import pytest
+
 from app.core.enums import SentimentLabel, StanceLabel
-from app.narrative.reasons import aggregate_issue_sentiment, derive_narrative_reasons
+from app.narrative.reasons import (
+    aggregate_issue_sentiment,
+    derive_narrative_reasons,
+    render_star_rating,
+    sentiment_to_stars,
+    summarize_subissue_sentiment_counts,
+)
 from app.schemas.issue import IssueDetailSchema, IssueSchema
 
 
@@ -65,3 +73,45 @@ def test_aggregate_issue_sentiment_defaults_to_neutral_without_subissues() -> No
         document_count=0, source_count=0, channel_count=0, subissues=[],
     )
     assert aggregate_issue_sentiment(issue) is SentimentLabel.NEUTRAL
+
+
+@pytest.mark.parametrize(
+    "label,expected",
+    [
+        (SentimentLabel.POSITIVE, (5, "긍정")),
+        (SentimentLabel.NEUTRAL, (3, "중립")),
+        (SentimentLabel.MIXED, (3, "혼재")),
+        (SentimentLabel.NEGATIVE, (1, "부정")),
+    ],
+)
+def test_sentiment_to_stars_is_a_fixed_deterministic_mapping(label, expected) -> None:
+    assert sentiment_to_stars(label) == expected
+
+
+def test_render_star_rating_fills_and_pads_to_five() -> None:
+    assert render_star_rating(5) == "★★★★★"
+    assert render_star_rating(3) == "★★★☆☆"
+    assert render_star_rating(0) == "☆☆☆☆☆"
+
+
+def test_render_star_rating_rejects_out_of_range_counts() -> None:
+    with pytest.raises(ValueError):
+        render_star_rating(6)
+    with pytest.raises(ValueError):
+        render_star_rating(-1)
+
+
+def test_summarize_subissue_sentiment_counts_are_real_label_counts() -> None:
+    details = [
+        _detail("긍정1", SentimentLabel.POSITIVE),
+        _detail("긍정2", SentimentLabel.POSITIVE),
+        _detail("부정", SentimentLabel.NEGATIVE),
+        _detail("중립", SentimentLabel.NEUTRAL),
+    ]
+    counts = summarize_subissue_sentiment_counts(_issue(details))
+    assert counts == {
+        SentimentLabel.POSITIVE: 2,
+        SentimentLabel.NEGATIVE: 1,
+        SentimentLabel.NEUTRAL: 1,
+        SentimentLabel.MIXED: 0,
+    }

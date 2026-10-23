@@ -190,9 +190,9 @@ class GeminiNarrativeAdapter:
         prompt = self._build_prompt(context=context, analytics=analytics, evidence=evidence)
         snapshot_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
-        raw_sentences = await self._call_gemini(prompt)
+        raw_sections = await self._call_gemini(prompt)
         sentences = self._ground(
-            raw_sentences, context=context, analytics=analytics, evidence=evidence
+            raw_sections, context=context, analytics=analytics, evidence=evidence
         )
 
         generated_at = self.now_fn()
@@ -205,6 +205,7 @@ class GeminiNarrativeAdapter:
                 created_at=generated_at,
             ),
             analytics_run_id=analytics_run_id,
+            issue_id=context.issue.issue_id,
             generation=NarrativeGenerationSchema(
                 provider="gemini",
                 model=self.model,
@@ -240,13 +241,16 @@ class GeminiNarrativeAdapter:
             if item.project_id == analytics.project_id
         ]
         instructions = (
-            "다음은 검증된 사실(facts)과 근거(evidence), 집계 수치(analytics_metrics)다. "
-            "이 안에 있는 내용만 사용해 공공기관 보고서 문체로 이슈를 설명하는 한국어 문장을 "
-            "작성하라. 응답은 아래 스키마를 따르는 JSON 객체의 배열만 반환하고 다른 텍스트는 "
-            "넣지 마라: "
-            '{"text": "...", "fact_ids": ["<fact_id>", ...], '
+            "다음은 검증된 사실(facts), 근거(evidence), 하위 쟁점(subissues), 집계 수치"
+            "(analytics_metrics)다. 이 안에 있는 내용만 사용해 공공기관 보고서 문체의 "
+            "한국어 문장을 두 그룹으로 작성하라. 'overview'는 이슈의 발생 배경과 이번 달 "
+            "경과를 종합 서술하는 2~4개의 독립된 문장이고, 'closing'은 하위 쟁점별 온라인 "
+            "반응을 종합 해석하고 유의사항을 설명하는 1~3개의 독립된 문장이다(하위 쟁점의 "
+            "현황표는 별도로 만들어지므로 여기서 표를 반복하지 마라). 응답은 다른 텍스트 "
+            "없이 아래 스키마를 따르는 JSON 객체 하나만 반환하라: "
+            '{"overview": [{"text": "...", "fact_ids": ["<fact_id>", ...], '
             '"evidence_ids": ["<evidence_id>", ...], "document_ids": ["<document_id>", ...], '
-            '"analytics_paths": ["<analytics_metrics의 키>", ...]}. '
+            '"analytics_paths": ["<analytics_metrics의 키>", ...]}, ...], "closing": [...]}. '
             "각 문장은 fact_ids/evidence_ids/document_ids/analytics_paths 중 최소 하나에 "
             "아래에 실제로 주어진 id/키를 정확히 인용해야 하며, 주어진 데이터에 없는 사실·숫자·"
             "고유명사·인과관계를 추가하면 안 된다."
@@ -273,7 +277,7 @@ class GeminiNarrativeAdapter:
         }
         return instructions + "\n\n" + json.dumps(payload, ensure_ascii=False)
 
-    async def _call_gemini(self, prompt: str) -> list[Any]:
+    async def _call_gemini(self, prompt: str) -> dict[str, Any]:
         url = GEMINI_URL_TEMPLATE.format(model=self.model)
         body = {
             "contents": [{"parts": [{"text": prompt}]}],
@@ -298,16 +302,23 @@ class GeminiNarrativeAdapter:
                 code="malformed_response",
                 message=f"Gemini response was not the expected JSON shape: {exc}",
             ) from exc
-        if not isinstance(parsed, list):
+        if (
+            not isinstance(parsed, dict)
+            or not isinstance(parsed.get("overview"), list)
+            or not isinstance(parsed.get("closing"), list)
+        ):
             raise NarrativeGenerationError(
                 code="malformed_response",
-                message="Gemini response JSON must be a list of sentence objects",
+                message=(
+                    "Gemini response JSON must be an object with 'overview' and "
+                    "'closing' sentence lists"
+                ),
             )
         return parsed
 
     @staticmethod
     def _ground(
-        raw_sentences: list[Any],
+        raw_sections: Mapping[str, Any],
         *,
         context: NarrativeContext,
         analytics: AnalyticsSnapshotSchema,
@@ -322,22 +333,26 @@ class GeminiNarrativeAdapter:
         allowed_analytics_roots = set(analytics.metrics.keys())
 
         grounded: list[NarrativeSentenceSchema] = []
-        for raw in raw_sentences:
-            try:
-                sentence = NarrativeSentenceSchema.model_validate(raw)
-            except Exception:  # noqa: BLE001 - malformed candidate, drop it, don't fail the draft
-                continue
-            if not set(sentence.fact_ids) <= allowed_fact_ids:
-                continue
-            if not set(sentence.evidence_ids) <= allowed_evidence_ids:
-                continue
-            if not set(sentence.document_ids) <= allowed_document_ids:
-                continue
-            if not all(
-                path.split(".")[0] in allowed_analytics_roots for path in sentence.analytics_paths
-            ):
-                continue
-            grounded.append(sentence)
+        for role in ("overview", "closing"):
+            for raw in raw_sections.get(role, []):
+                try:
+                    sentence = NarrativeSentenceSchema.model_validate(
+                        {**raw, "role": role} if isinstance(raw, dict) else raw
+                    )
+                except Exception:  # noqa: BLE001 - malformed candidate, drop it, don't fail the draft
+                    continue
+                if not set(sentence.fact_ids) <= allowed_fact_ids:
+                    continue
+                if not set(sentence.evidence_ids) <= allowed_evidence_ids:
+                    continue
+                if not set(sentence.document_ids) <= allowed_document_ids:
+                    continue
+                if not all(
+                    path.split(".")[0] in allowed_analytics_roots
+                    for path in sentence.analytics_paths
+                ):
+                    continue
+                grounded.append(sentence)
 
         if not grounded:
             raise NarrativeGenerationError(

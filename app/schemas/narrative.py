@@ -16,6 +16,7 @@ valid.
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import AwareDatetime, Field, field_validator, model_validator
 
@@ -24,7 +25,7 @@ from app.schemas.common import ProjectId, RunId, SchemaBase, VersionedRunSchema
 from app.schemas.document import DocumentId
 from app.schemas.evidence import EvidenceId
 from app.schemas.fact import FactId, FactSchema
-from app.schemas.issue import IssueSchema
+from app.schemas.issue import IssueId, IssueSchema
 
 
 class NarrativeContext(SchemaBase):
@@ -53,6 +54,11 @@ class NarrativeSentenceSchema(SchemaBase):
     evidence_ids: list[EvidenceId] = Field(default_factory=list)
     document_ids: list[DocumentId] = Field(default_factory=list)
     analytics_paths: list[str] = Field(default_factory=list)
+    # Which part of the per-issue report this sentence belongs to (added
+    # 2026-10-20 for the overview-paragraph/table/closing-paragraph report
+    # layout -- requirements §5.3). Defaults to "overview" so every
+    # pre-existing sentence/payload stays valid.
+    role: Literal["overview", "closing"] = "overview"
 
     @model_validator(mode="after")
     def validate_grounded(self) -> "NarrativeSentenceSchema":
@@ -95,6 +101,11 @@ class NarrativeOutputSchema(SchemaBase):
     project_id: ProjectId
     run: VersionedRunSchema
     analytics_run_id: RunId | None = None
+    # Which issue this draft was generated for (added 2026-10-20 so the
+    # UI can re-fetch the issue/subissues/facts to render the per-issue
+    # report layout for any saved version, not just the one just
+    # generated). None for output rows saved before this field existed.
+    issue_id: IssueId | None = None
     generation: NarrativeGenerationSchema | None = None
     sentences: list[NarrativeSentenceSchema]
     approved: bool = False

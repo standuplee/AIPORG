@@ -62,6 +62,7 @@ from app.core.enums import (
     ChannelType,
     CollectionRunStatus,
     FactStatus,
+    SentimentLabel,
     WorkflowState,
 )
 from app.core.state_machine import InvalidStateTransitionError
@@ -74,7 +75,13 @@ from app.issues.discovery import IssueDiscoveryService
 from app.issues.finalization import IssueFinalizationService
 from app.models.project import Query
 from app.narrative.llm_adapter import GeminiNarrativeAdapter, NarrativeGenerationError
-from app.narrative.reasons import aggregate_issue_sentiment, derive_narrative_reasons
+from app.narrative.reasons import (
+    aggregate_issue_sentiment,
+    derive_narrative_reasons,
+    render_star_rating,
+    sentiment_to_stars,
+    summarize_subissue_sentiment_counts,
+)
 from app.narrative.template import TemplateNarrativeService
 from app.report.approval import ReportApprovalError, ReportApprovalService
 from app.report.hwpx_writer import HwpxPrototypeError, build_cover_toc_summary
@@ -689,7 +696,10 @@ def _template_sentences(
 ) -> list[NarrativeSentenceSchema]:
     """Reuse TemplateNarrativeService's strict, tested per-fact rendering
     (claim must match the linked evidence excerpt verbatim) rather than
-    reimplementing a second deterministic template."""
+    reimplementing a second deterministic template. Tagged role="overview"
+    (the default) -- these per-fact quotes stand in for the LLM's
+    synthesized background paragraph when no LLM key is configured.
+    """
 
     service = TemplateNarrativeService()
     sentences: list[NarrativeSentenceSchema] = []
@@ -702,6 +712,69 @@ def _template_sentences(
             continue  # not supported by linked evidence text, skip rather than crash the page
         sentences.append(NarrativeSentenceSchema(text=text, fact_ids=[fact.fact_id]))
     return sentences
+
+
+def _template_closing_sentence(issue) -> list[NarrativeSentenceSchema]:
+    """A deterministic closing sentence for the no-LLM fallback: the real
+    count of subissues per sentiment label, grounded in the issue's own
+    fact_ids (the same facts those subissues were classified from) --
+    never an estimate (AGENTS.md rule 7)."""
+
+    counts = summarize_subissue_sentiment_counts(issue)
+    total = sum(counts.values())
+    if not total:
+        return []
+    text = (
+        f"세부 쟁점 {total}건 중 긍정 {counts[SentimentLabel.POSITIVE]}건·"
+        f"부정 {counts[SentimentLabel.NEGATIVE]}건·중립 {counts[SentimentLabel.NEUTRAL]}건·"
+        f"혼재 {counts[SentimentLabel.MIXED]}건으로 집계됨."
+    )
+    return [NarrativeSentenceSchema(text=text, fact_ids=issue.fact_ids, role="closing")]
+
+
+def _load_issue_narrative_materials(session, project_id: UUID, issue_id):
+    """Re-fetch the issue/facts/documents a saved NarrativeOutputSchema was
+    generated for, so any saved version (not just the one just generated in
+    this script run) can be rendered as the overview/table/closing report.
+    Returns None if the issue no longer exists (e.g. a legacy output row
+    saved before ``issue_id`` existed, or the issue was deleted) -- callers
+    fall back to the plain sentence list in that case."""
+
+    issue = SqlAlchemyIssueRepository(session).get(project_id, issue_id)
+    if issue is None:
+        return None
+    fact_repository = SqlAlchemyFactRepository(session)
+    facts = [
+        fact
+        for fact_id in issue.fact_ids
+        if (fact := fact_repository.get(project_id, fact_id)) is not None
+    ]
+    document_repository = SqlAlchemyDocumentRepository(session)
+    document_ids = {doc_id for fact in facts for doc_id in fact.evidence_document_ids}
+    documents = {
+        document.document_id: document
+        for doc_id in document_ids
+        if (document := document_repository.get(project_id, doc_id)) is not None
+    }
+    return issue, facts, documents
+
+
+def _format_issue_sources(facts, documents) -> list[str]:
+    ordered_documents = sorted(
+        {
+            doc_id: documents[doc_id]
+            for fact in facts
+            for doc_id in fact.evidence_document_ids
+            if doc_id in documents
+        }.values(),
+        key=lambda document: document.published_at or datetime.min.replace(tzinfo=timezone.utc),
+    )
+    formatted = [
+        f"{document.source}({document.published_at.strftime('%Y.%m.%d')})"
+        if document.published_at else document.source
+        for document in ordered_documents
+    ]
+    return list(dict.fromkeys(formatted))  # dedupe, keep first-seen order
 
 
 def _render_narrative_sentences(output: NarrativeOutputSchema) -> None:
@@ -717,6 +790,48 @@ def _render_narrative_sentences(output: NarrativeOutputSchema) -> None:
         if sentence.analytics_paths:
             refs.append("analytics: " + ", ".join(sentence.analytics_paths))
         st.caption("근거 — " + ", ".join(refs))
+
+
+def _star_cell(label: SentimentLabel) -> str:
+    count, text = sentiment_to_stars(label)
+    return f"{render_star_rating(count)} {text}"
+
+
+def _render_issue_narrative_report(output: NarrativeOutputSchema, materials) -> None:
+    """The per-issue report layout: overview paragraph -> 핵심 과제 table
+    (온라인 반응 as a fixed sentiment->star mapping, see
+    app/narrative/reasons.py) -> 출처 -> closing paragraph. Falls back to
+    the plain sentence list when the issue can't be resolved."""
+
+    if materials is None:
+        _render_narrative_sentences(output)
+        return
+    issue, facts, documents = materials
+    overview = [s for s in output.sentences if s.role == "overview"]
+    closing = [s for s in output.sentences if s.role == "closing"]
+
+    st.markdown(f"#### 이슈: {issue.label}")
+    if overview:
+        st.write(" ".join(sentence.text for sentence in overview))
+    if issue.subissues:
+        st.dataframe(
+            [
+                {
+                    "핵심 과제": subissue.label,
+                    "정책 · 현황": f"{subissue.policy} — {subissue.summary}",
+                    "온라인 반응": _star_cell(subissue.sentiment),
+                }
+                for subissue in issue.subissues
+            ],
+            use_container_width=True,
+        )
+    sources = _format_issue_sources(facts, documents)
+    if sources:
+        st.caption("출처: " + ", ".join(sources))
+    if closing:
+        st.write(" ".join(sentence.text for sentence in closing))
+    with st.expander("근거 보기 (문장별 fact/evidence/document 인용)"):
+        _render_narrative_sentences(output)
 
 
 def page_narrative(factory: sessionmaker) -> None:
@@ -806,7 +921,9 @@ def page_narrative(factory: sessionmaker) -> None:
                     st.error(f"Gemini 초안 생성 실패: {exc}")
                     return
             else:
-                sentences = _template_sentences(context, analytics, evidence)
+                sentences = _template_sentences(context, analytics, evidence) + (
+                    _template_closing_sentence(issue)
+                )
                 if not sentences:
                     st.warning(
                         "템플릿으로 생성 가능한 문장이 없다(근거 원문과 정확히 "
@@ -822,6 +939,7 @@ def page_narrative(factory: sessionmaker) -> None:
                         created_at=datetime.now(timezone.utc),
                     ),
                     analytics_run_id=analytics.run.run_id,
+                    issue_id=issue.issue_id,
                     sentences=sentences,
                 )
 
@@ -853,12 +971,21 @@ def page_narrative(factory: sessionmaker) -> None:
         "버전 선택", options=range(len(outputs)), format_func=lambda i: labels[i]
     )
     viewing = outputs[view_index]
-    _render_narrative_sentences(viewing)
+    with session_scope(factory) as session:
+        materials = (
+            _load_issue_narrative_materials(session, project_id, viewing.issue_id)
+            if viewing.issue_id is not None else None
+        )
+    _render_issue_narrative_report(viewing, materials)
 
     with st.form("edit_narrative_form"):
         st.caption("문장 내용만 고칠 수 있다(근거 참조는 그대로 유지됨). 저장하면 새 버전이 된다.")
+        _role_label = {"overview": "배경·경과", "closing": "해석·제한"}
         edited_texts = [
-            st.text_area(f"문장 {i + 1}", value=sentence.text, key=f"edit-{view_index}-{i}")
+            st.text_area(
+                f"문장 {i + 1} ({_role_label[sentence.role]})",
+                value=sentence.text, key=f"edit-{view_index}-{i}",
+            )
             for i, sentence in enumerate(viewing.sentences)
         ]
         save_edit = st.form_submit_button("수정 저장 (새 버전)")
@@ -923,10 +1050,19 @@ def page_narrative(factory: sessionmaker) -> None:
             "버전 B", options=range(len(outputs)), format_func=lambda i: labels[i],
             index=min(1, len(outputs) - 1), key="compare_b",
         )
+        with session_scope(factory) as session:
+            materials_a = (
+                _load_issue_narrative_materials(session, project_id, outputs[index_a].issue_id)
+                if outputs[index_a].issue_id is not None else None
+            )
+            materials_b = (
+                _load_issue_narrative_materials(session, project_id, outputs[index_b].issue_id)
+                if outputs[index_b].issue_id is not None else None
+            )
         with col_a:
-            _render_narrative_sentences(outputs[index_a])
+            _render_issue_narrative_report(outputs[index_a], materials_a)
         with col_b:
-            _render_narrative_sentences(outputs[index_b])
+            _render_issue_narrative_report(outputs[index_b], materials_b)
 
 
 def _visualization_version_label(output: VisualizationOutputSchema) -> str:

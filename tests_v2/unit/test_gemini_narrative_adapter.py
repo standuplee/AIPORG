@@ -37,9 +37,10 @@ class _FakeTransport:
         return next(self.responses)
 
 
-def _gemini_payload(sentences: list[dict]) -> str:
+def _gemini_payload(overview: list[dict], closing: list[dict] | None = None) -> str:
+    body = {"overview": overview, "closing": closing or []}
     return json.dumps(
-        {"candidates": [{"content": {"parts": [{"text": json.dumps(sentences)}]}}]}
+        {"candidates": [{"content": {"parts": [{"text": json.dumps(body)}]}}]}
     )
 
 
@@ -137,6 +138,40 @@ def test_generate_accepts_evidence_document_and_analytics_grounded_sentences() -
     )
 
     assert len(output.sentences) == 3
+
+
+def test_generate_tags_overview_and_closing_sentences_with_role() -> None:
+    project_id, context, analytics, evidence, fact_id, document_id, evidence_id = _context_and_inputs()
+    body = _gemini_payload(
+        overview=[{"text": "배경 문장.", "fact_ids": [str(fact_id)]}],
+        closing=[{"text": "해석 문장.", "evidence_ids": [str(evidence_id)]}],
+    )
+    transport = _FakeTransport([_FakeResponse(200, body)])
+    adapter = GeminiNarrativeAdapter(api_key="key", transport=transport, now_fn=lambda: NOW)
+
+    output = asyncio.run(
+        adapter.generate(project_id=project_id, context=context, analytics=analytics, evidence=evidence)
+    )
+
+    assert output.issue_id == context.issue.issue_id
+    roles = {sentence.text: sentence.role for sentence in output.sentences}
+    assert roles["배경 문장."] == "overview"
+    assert roles["해석 문장."] == "closing"
+
+
+def test_generate_raises_when_response_is_missing_overview_or_closing() -> None:
+    project_id, context, analytics, evidence, *_ = _context_and_inputs()
+    body = json.dumps(
+        {"candidates": [{"content": {"parts": [{"text": json.dumps([{"text": "flat list"}])}]}}]}
+    )
+    transport = _FakeTransport([_FakeResponse(200, body)])
+    adapter = GeminiNarrativeAdapter(api_key="key", transport=transport, now_fn=lambda: NOW)
+
+    with pytest.raises(NarrativeGenerationError) as raised:
+        asyncio.run(
+            adapter.generate(project_id=project_id, context=context, analytics=analytics, evidence=evidence)
+        )
+    assert raised.value.code == "malformed_response"
 
 
 def test_generate_raises_when_no_sentence_survives_grounding() -> None:

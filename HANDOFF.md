@@ -1,12 +1,29 @@
 # AIPORG 공통 작업 인계
 
-최종 정리: 2026-10-20. 작업 시작 시 실제 파일과 `git status`를 확인하고 사용자의 최신 요청을 우선한다. 이 문서는 현재 상태 요약이며, 과거 5~23차 상세 기록은 [구현 계획의 이관 기록](docs/superpowers/plans/2026-09-08-aiporg2-implementation.md#2026-10-19-인계-문서에서-이관한-상세-작업-기록)에 있다.
+최종 정리: 2026-10-23. 작업 시작 시 실제 파일과 `git status`를 확인하고 사용자의 최신 요청을 우선한다. 이 문서는 현재 상태 요약이며, 과거 5~23차 상세 기록은 [구현 계획의 이관 기록](docs/superpowers/plans/2026-09-08-aiporg2-implementation.md#2026-10-19-인계-문서에서-이관한-상세-작업-기록)에 있다.
 
 ## 현재 목표와 구현 방향
+
+현재 작업 브랜치는 `feat/issue-driven-research`다. 이 브랜치의 서술 보고서 레이아웃 변경과 1.0 불필요 산출물/API 정리를 마무리했다. 전체 `tests_v2` 및 `tests` 결과는 **431 passed**다. IssueScope 기능 구현은 정리 기준 커밋 `ae7dcec`에서 분기한 별도 worktree `/private/tmp/AIPORG-issuescope`, branch `feat/issuescope-implementation`에서 진행한다. 원래 2.0 브랜치와 IssueScope 구현을 분리해 유지한다.
 
 월별 키워드로 온라인 여론을 수집·분석하고, 근거가 연결된 서술과 표·그림을 사용자가 UI에서 수정·승인한 뒤 동일 승인본에서 DOCX·Markdown·HWPX를 출력한다. 제작 기준은 [7월 월간 보고서 요구사항](docs/aiporg2/monthly-keyword-report-requirements.md)이다. 4개 이슈는 12쪽 기본 목표이며 이슈 수·장문에 따라 확장한다.
 
 현재 개발 대상은 `app/` + `streamlit_app/console.py`다. `aiporg/`는 기존 1.0이며 출력 기능이 있다고 해서 2.0에 포팅된 것으로 보지 않는다.
+
+## 1.0 정리 검토 (2026-10-23)
+
+- 사용처와 진입점을 확인했다. CLI·보고서·분석·수집 코드에는 테스트와 내부 연결이 있다. 설정·예제 데이터는 보존하고, 사용자 승인에 따라 재생성 가능한 `output_live/`, `output_naver/`, `output_youtube/` 결과물은 삭제했다.
+- 저장소 내 호출자가 없던 커뮤니티 API와 YouTube 분석 API를 사용자 승인에 따라 삭제했다(`aiporg/api/`, `aiporg/youtube/api.py`). FastAPI/Uvicorn도 다른 코드에서 사용되지 않아 `requirements.txt`에서 제거했다.
+- 2.0은 YouTube 영상·댓글 수집을 지원하고 공통 Analytics에서 채널/이슈/키워드 단위로 집계한다. 1.0의 YouTube 전용 토픽·감성·특이동향·요약 분석은 아직 포팅하지 않았다.
+- README와 `aiporg/cli.py` 사용 예시가 저장소에 없는 `config/chungnam_202603.yaml`을 가리키던 오류를 실제 fixture 설정인 `config/chungnam_202606.yaml`로 고쳤다.
+- 다음 후보: YouTube 전용 API 대신 2.0의 공통 수집·분석·UI에 영상 통계(조회·좋아요)와 영상/댓글을 구분한 이슈·감성 분석을 보강한다. 범위와 화면 설계는 구현 전 확정해야 한다.
+- 변경 파일: `README.md`, `aiporg/cli.py`, `HANDOFF.md`, `aiporg/api/`, `aiporg/youtube/api.py`, `aiporg/youtube/__init__.py`, `requirements.txt`, 그리고 위의 세 `output_*` 디렉터리. 전체 테스트에서 API/CLI 관련 회귀를 함께 확인했다.
+
+## 서술 보고서 레이아웃 정리 (2026-10-23)
+
+- 이슈별 초안을 배경·경과 문장, 핵심 과제 표, 근거 출처, 해석 문장 순서로 보여준다. Gemini 응답은 `overview`/`closing` 두 영역으로 받고 문장마다 기존 근거 ID 검증을 유지한다. 템플릿 fallback은 실제 하위 쟁점 감성 건수만 요약한다.
+- Narrative 버전에 `issue_id`를 저장해 선택한 이전 버전도 이슈 맥락과 함께 렌더링하며, 레거시 버전은 기존 글머리표 화면으로 표시한다. 온라인 반응 별점은 근거 없는 비율 산식을 만들지 않고 고정 감성 매핑을 쓴다.
+- 변경에는 Narrative UI, schema, Gemini adapter, Repository, 단위·통합 테스트가 포함된다. 전체 `tests_v2` + `tests`: **431 passed**. 통합 Streamlit 검증은 임시 `XDG_CACHE_HOME`/`MPLCONFIGDIR` 지정으로 폰트 캐시 권한 문제를 피했다.
 
 ## 확정된 결정
 
@@ -67,6 +84,14 @@ Python 3.12 기반 `.venv`에 `requirements-dev.txt`를 설치하고 `.env.examp
   - `streamlit_app/console.py::page_analytics`: "통계 집계 실행" 버튼이 `manager.submit()`으로 작업을 제출하고 즉시 반환(동기 대기 없음). `st.json(snapshot.metrics)` 전체 렌더링을 제거하고 `get_latest_summary()` 기반 요약으로 교체. 고유 문서 목록을 전수 조회에서 50건 페이지네이션으로 교체. `main()`에 `st.fragment(run_every=3)` 사이드바 상태 위젯 추가(페이지 이동·새로고침 후에도 같은 서버의 작업 상태 유지). "2. 수집 설정·실행"의 키워드 입력 캡션에 복합 검색어가 AND 조건을 보장하지 않는다는 안내를 추가(코드 확인: 각 줄 전체를 그대로 `query`/`q` 파라미터로 전달, AIPORG 자체의 전체-단어-포함 필터는 없음).
 - 테스트: `tests_v2/unit/test_analytics_ui_queries.py`(bounded SQL 검증, 3건), `tests_v2/unit/test_analytics_jobs.py`(프로세스/IPC/락 머신 7건, 모듈 레벨 fake worker 필요 — spawn은 타겟을 import 참조로 pickle), `tests_v2/integration/test_analytics_jobs_integration.py`(실제 spawn 프로세스로 Alembic 마이그레이션된 임시 SQLite에 커밋/롤백 검증, 2건), `tests_v2/unit/test_analytics_ui.py`(`AppTest.from_function` 렌더 함수 7건 — 이 함수는 대상 함수의 소스만 재실행하고 모듈 전역(import, 상수)은 안 가져오므로, 테스트 래퍼가 자체적으로 import하도록 작성). 전체 `tests_v2`+`tests` **417 passed**(409 + 7 UI, 통계 집계 전용 테스트는 409건에 포함).
 - 다음 행동(결정 필요 없으면 보류): 실제 브라우저에서 긴 집계를 돌려 사이드바 갱신 체감 확인(자동화 테스트는 UI 함수 단위까지만 검증했고 실제 브라우저 메모리 개선을 직접 재현하지는 않았다). `AnalyticsJobManager`는 서버 프로세스당 1건만 허용하므로 여러 프로젝트를 동시에 집계할 수 없다 — 필요해지면 재설계 대상.
+
+## 최신 검토: 사용자 지정 이슈 기반 조사 엔진 (2026-10-20)
+
+- 최신 목표: 사용자가 기간·지역·핵심 이슈를 정하고 AI가 이슈별 검색 확장·반복 조사·검증·공개 반응 분석·월간 종합을 수행한다. 자동 이슈 발견·전체 뉴스 클러스터링·이슈 중요도 선정은 현재 목표에서 제외하며 이전 검토의 해당 우선순위는 철회한다.
+- 완료: Issue Research / Opinion Analysis / Report Synthesis 기준으로 현행 2.0 코드를 정적 비교했다. 기존 검색어별 이슈 구성이 출발점에는 가깝지만, 확장 검색어 여러 개를 원래 사용자 이슈에 연결하는 계약이 필요하다.
+- 부족한 기능: 쿼리 생성 LLM·미확인 정보 판별·반복 수집·조사 종료 예산이 없다. workflow는 일방향이며 프로젝트 수집은 한 번만 실행한다. Fact는 앞 500자 근거의 첫 문장·기사 발행일에 의존하고 검증은 출처 수/공식 여부 중심이다. 반응 대상·프레임·이유 분석, 여러 이슈의 월간 종합, 승인본 고정도 보완 대상이다.
+- 결정/다음 행동: 구현 착수 아님. 이슈↔검색어 연결과 한 이슈의 제한된 반복 조사부터 설계할 것을 권한다. 기존 Collector·Repository·본문 추출·승인 UI는 재사용한다. 기존 ‘입력 검색어만 사용’은 현행 구현이며 최신 목표는 사용자 지정 이슈 안에서 확장하는 방식이다. LLM을 Narrative에만 두던 배치도 설계 대상이지만 Collector LLM 호출·Analyzer 웹 요청 금지는 유지한다. 새 schema/상태는 임의 추가하지 않는다.
+- 변경/검증/막힌 점: 이번 변경은 `HANDOFF.md`뿐이다. 기존 미커밋 구현은 유지했다. 테스트·실수집·외부 사실확인은 수행하지 않았고 기존 417 passed는 이번 검증 결과가 아니다.
 
 ## 기능 완료 시 커밋·푸시 규칙
 - 기능 단위의 구현과 필요한 테스트가 완료되면 `HANDOFF.md`를 최신 상태로 갱신한 뒤 해당 기능의 변경만 선별하여 커밋하고 원격 브랜치에 푸시한다.

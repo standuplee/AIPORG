@@ -32,6 +32,41 @@ def test_sentence_rejects_empty_text() -> None:
         NarrativeSentenceSchema(text="   ", fact_ids=[uuid4()])
 
 
+def test_sentence_role_defaults_to_overview_and_accepts_closing() -> None:
+    assert NarrativeSentenceSchema(text="배경.", fact_ids=[uuid4()]).role == "overview"
+    assert NarrativeSentenceSchema(
+        text="해석.", fact_ids=[uuid4()], role="closing"
+    ).role == "closing"
+
+
+def test_sentence_rejects_unknown_role() -> None:
+    with pytest.raises(ValidationError):
+        NarrativeSentenceSchema(text="문장.", fact_ids=[uuid4()], role="table")
+
+
+def test_output_issue_id_defaults_to_none_and_round_trips() -> None:
+    issue_id = uuid4()
+    output = NarrativeOutputSchema(
+        project_id=uuid4(),
+        run=VersionedRunSchema(
+            run_id=uuid4(), input_version="v1", output_version="v1", created_at=NOW
+        ),
+        issue_id=issue_id,
+        sentences=[NarrativeSentenceSchema(text="문장.", fact_ids=[uuid4()])],
+    )
+    assert output.issue_id == issue_id
+    assert NarrativeOutputSchema.model_validate(output.model_dump(mode="json")).issue_id == issue_id
+
+    without_issue_id = NarrativeOutputSchema(
+        project_id=uuid4(),
+        run=VersionedRunSchema(
+            run_id=uuid4(), input_version="v1", output_version="v1", created_at=NOW
+        ),
+        sentences=[NarrativeSentenceSchema(text="문장.", fact_ids=[uuid4()])],
+    )
+    assert without_issue_id.issue_id is None
+
+
 def test_generation_requires_timezone_aware_generated_at() -> None:
     with pytest.raises(ValidationError):
         NarrativeGenerationSchema(

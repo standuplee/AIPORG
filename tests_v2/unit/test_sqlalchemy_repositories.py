@@ -17,6 +17,7 @@ from app.core.enums import (
 from app.core.state_machine import InvalidStateTransitionError
 from app.db.session import session_scope
 from app.models import Base
+from app.models.narrative import Narrative
 from app.models.project import Query
 from app.repositories.sqlalchemy import (
     RepositoryConflictError,
@@ -260,6 +261,7 @@ def test_downstream_repositories_round_trip_fixed_contracts() -> None:
             run=VersionedRunSchema(
                 run_id=uuid4(), input_version="v1", output_version="v1", created_at=now,
             ),
+            issue_id=issue.issue_id,
             sentences=[
                 NarrativeSentenceSchema(text="템플릿 문장.", fact_ids=[fact.fact_id]),
             ],
@@ -269,6 +271,9 @@ def test_downstream_repositories_round_trip_fixed_contracts() -> None:
         # query returns -- they are different shapes sharing one table.
         assert narrative_repo.get_latest(project.project_id) == context
         assert narrative_repo.get_latest_output(project.project_id) == output
+        # issue_id round-trips through the DB column too, not just the JSON
+        # blob, so other code can query narratives by issue in the future.
+        assert session.get(Narrative, output.run.run_id).issue_id == issue.issue_id
 
         # A regenerated draft within the same wall-clock second must still
         # be recognized as the newer version (SQLite's CURRENT_TIMESTAMP only

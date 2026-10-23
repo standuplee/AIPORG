@@ -792,7 +792,7 @@ class SqlAlchemyNarrativeRepository(_Repository):
         self.session.add(Narrative(
             id=output.run.run_id,
             project_id=project_id,
-            issue_id=None,
+            issue_id=output.issue_id,
             context={"kind": "narrative_output", "data": output.model_dump(mode="json")},
             run_id=output.run.run_id,
             input_version=output.run.input_version,
