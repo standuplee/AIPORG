@@ -32,13 +32,11 @@ trafilatura==2.3.1
 # "HWPX 구현 방향" 참고).
 python-hwpx==6.8.0
 
-# 커뮤니티 어댑터 / YouTube 내부 API
-fastapi>=0.110
-uvicorn>=0.29
+# 데이터 계약과 마이그레이션
 pydantic>=2.6
 alembic>=1.13
 
-# YouTube 분석 (키워드 추출)
+# 형태소 기반 키워드 추출
 kiwipiepy>=0.17
 
 # 테스트

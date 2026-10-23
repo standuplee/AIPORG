@@ -1,12 +1,18 @@
 # AIPORG 공통 작업 인계
 
-최종 정리: 2026-10-20. 작업 시작 시 실제 파일과 `git status`를 확인하고 사용자의 최신 요청을 우선한다. 이 문서는 현재 상태 요약이며, 과거 5~23차 상세 기록은 [구현 계획의 이관 기록](docs/superpowers/plans/2026-09-08-aiporg2-implementation.md#2026-10-19-인계-문서에서-이관한-상세-작업-기록)에 있다.
+최종 정리: 2026-10-23. 작업 시작 시 실제 파일과 `git status`를 확인하고 사용자의 최신 요청을 우선한다. 이 문서는 현재 상태 요약이며, 과거 5~23차 상세 기록은 [구현 계획의 이관 기록](docs/superpowers/plans/2026-09-08-aiporg2-implementation.md#2026-10-19-인계-문서에서-이관한-상세-작업-기록)에 있다.
 
 ## 현재 목표와 구현 방향
 
-월별 키워드로 온라인 여론을 수집·분석하고, 근거가 연결된 서술과 표·그림을 사용자가 UI에서 수정·승인한 뒤 동일 승인본에서 DOCX·Markdown·HWPX를 출력한다. 제작 기준은 [7월 월간 보고서 요구사항](docs/aiporg2/monthly-keyword-report-requirements.md)이다. 4개 이슈는 12쪽 기본 목표이며 이슈 수·장문에 따라 확장한다.
+현재 목표는 충남 전용 월간 보고서 도구를 범용 Issue Research & Analysis Engine으로 발전시키는 것이다. 사용자는 대상 지역, 기간, 핵심 이슈를 지정하고 시스템은 이슈별 조사·근거 검증·공개 반응 분석·월간 종합을 수행한다. 자동 이슈 발굴과 전수 여론 주장은 MVP 범위에서 제외한다.
 
-현재 개발 대상은 `app/` + `streamlit_app/console.py`다. `aiporg/`는 기존 1.0이며 출력 기능이 있다고 해서 2.0에 포팅된 것으로 보지 않는다.
+정리 기준 branch는 `feat/issuescope-research-engine`이며 전용 worktree는 `/private/tmp/AIPORG-issuescope`다. 이 커밋에는 1.0 산출물/API 정리와 IssueScope 설계·계획만 담는다. 기능 구현은 이 기준 branch에서 새로 분기할 `feat/issuescope-implementation`에서 시작한다. 원래 worktree의 `feat/issue-driven-research`와 미커밋 변경은 보존한다. 저장소별 설계는 [IssueScope design](docs/superpowers/specs/2026-10-23-issuescope-engine-design.md), 구현 계획은 [IssueScope plan](docs/superpowers/plans/2026-10-23-issuescope-engine.md)이다.
+
+## 1.0 정리
+
+- 재생성 가능한 `output_live/`, `output_naver/`, `output_youtube/` 산출물과 사용되지 않던 커뮤니티·YouTube FastAPI 앱을 제거했다. FastAPI/Uvicorn도 의존성에서 삭제했다.
+- README와 1.0 CLI 예시의 존재하지 않던 2026-03 fixture 경로를 2026-06 설정으로 수정했다.
+- 기능 구현 branch에서는 기존 2.0을 IssueScope 기반으로 발전시킨다. 원래 worktree와 미커밋 변경은 별도로 유지한다.
 
 ## 확정된 결정
 

@@ -22,21 +22,21 @@ Crawler ──▶ AI 분석 파이프라인 ──▶ 공공기관 문체 서술
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 
-# 분석결과 fixture 재생성(선택) — 원본 수치를 코드로 인코딩
+# 분석 결과 fixture 재생성(선택)
 ./.venv/bin/python -m scripts.build_chungnam_fixture
 
-# 보고서 생성 (충남 2026-03, 도지사 = 박수현)
+# 보고서 생성 (충남 2026-06, 도지사 = 박수현)
 ./.venv/bin/python -m aiporg.cli run \
-    --config config/chungnam_202603.yaml \
+    --config config/chungnam_202606.yaml \
     --formats docx,html,md,json \
     --out output
 ```
 
-생성물: `output/충청남도202603여론분석리포트(3월).docx` 외.
+생성물은 `output/` 디렉터리에 저장된다.
 
 ## 입력 설정 (사용자가 편집하는 유일한 파일)
 
-`config/chungnam_202603.yaml` — 프로젝트명, 분석대상(지자체/직위/인물),
+`config/chungnam_202606.yaml` — 프로젝트명, 분석대상(지자체/직위/인물),
 분석기간, 키워드 수집 체계, 수집 채널, LLM provider 를 지정한다.
 다른 지자체·기업·인물로 확장하려면 이 파일만 복제·수정하면 된다.
 
