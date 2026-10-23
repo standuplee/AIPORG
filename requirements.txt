@@ -35,6 +35,8 @@ python-hwpx==6.8.0
 # 데이터 계약과 마이그레이션
 pydantic>=2.6
 alembic>=1.13
+fastapi>=0.115
+uvicorn>=0.30
 
 # 형태소 기반 키워드 추출
 kiwipiepy>=0.17

@@ -4,11 +4,27 @@
 
 ## 현재 목표와 구현 방향
 
-`main`은 AIPORG 2.0의 최신 작업과 IssueScope PRD 문서를 함께 보유하는 기준 브랜치다. 기존 구현(수집·분석·서술·승인)과 1.0 정리는 유지하며, 새 PRD 기능은 `issue-driven-research-engine` 브랜치에서 새로 시작한다. PRD 설계는 [IssueScope design](docs/superpowers/specs/2026-10-23-issuescope-engine-design.md), 구현 계획은 [IssueScope plan](docs/superpowers/plans/2026-10-23-issuescope-engine.md)이다. 기존 2.0 전체 테스트 기록은 **431 passed**다.
+새 PRD 기준 재구성 작업은 `issue-driven-research-engine` 브랜치에서 진행한다. 기존 AIPORG 2.0 구현을 공통 기반으로 보유하며, 제품 요구사항의 기준은 저장소 루트 [PRD.md](PRD.md)다. 현재 첫 구현 단위는 Qwen으로 이슈별 조사 질문과 연결 검색어를 만드는 것이다. 기존 2.0의 마지막 기록된 전체 테스트 결과는 **431 passed**이며 이번 변경에서는 전체 테스트를 다시 실행하지 않았다.
 
 제품 목표는 사용자가 대상·기간·핵심 이슈를 지정하고, 시스템이 이슈별 조사·근거 검증·공개 반응 분석·월간 종합을 수행하는 범용 Issue Research & Analysis Engine이다. 자동 이슈 발굴과 전수 여론 주장은 MVP 범위에서 제외한다.
 
-월별 키워드 수집·분석과 근거가 연결된 서술, 사용자 검수·승인, HWPX 시제품은 기존 2.0 기반 기능이다. 제작 기준은 [7월 월간 보고서 요구사항](docs/aiporg2/monthly-keyword-report-requirements.md)이다.
+PRD는 사용자 지정 이슈별 반복 조사, Fact와 Evidence의 추적성, Fact Research와 공개 검색 기반 Opinion Analysis 분리, 이슈별 결과의 월간 합성 및 출처 포함 보고서를 요구한다. 기존 월별 키워드 수집·분석, 서술 검수·승인, HWPX 시제품은 재사용 가능성을 조사할 기존 2.0 기능이며 PRD 전체 요구를 이미 충족한다는 뜻은 아니다. 기존 보고서 기준은 [7월 월간 보고서 요구사항](docs/aiporg2/monthly-keyword-report-requirements.md)이다.
+
+## PRD 검토 및 현재 작업 상태 (2026-10-23)
+
+- 새 브랜치에 루트 `PRD.md`를 두고 source of truth로 삼는다. 문서는 80개 절로 제품 경계, MVP 요구사항, 데이터/서비스/API 제안, 구현 단계, 수용 기준 및 Definition of Done을 정의한다. 원칙은 “사용자가 이슈를 정하고 AI가 조사”하는 것이며 자동 이슈 발굴이나 전수 SNS 수집은 MVP 범위가 아니다.
+- Qwen 첫 연결: 로컬 Ollama의 `qwen3:8b`를 `/api/chat`으로 호출한다. 역할 프롬프트는 [prompts.py](app/research/query/prompts.py)의 `SYSTEM_PROMPT`다. `QueryExpansionResult` JSON Schema를 전달하고 조사 질문과 검색어를 각각 최대 10개로 제한하며 모든 질문이 하나 이상의 검색어에 연결되는지 검증한다. Qwen3의 느린 thinking 응답을 피하기 위해 `think: false`를 지정한다.
+- 로컬 Swagger 확인: [api.py](app/research/api.py)에 `POST /query-expansion`을 추가했다. 기존 `IssueInput`을 요청 모델로 재사용하며 Swagger 예시에 `충청남도 / 2026-09-01~2026-09-30 / 삼성디스플레이 67조 투자`를 표시한다. 실행은 `./.venv/bin/uvicorn app.research.api:app --host 127.0.0.1 --port 8000`, 접속은 `http://127.0.0.1:8000/docs`다. Ollama 연결 실패나 생성 오류는 502로 반환한다.
+- 이번 변경 파일: `app/research/api.py`, `requirements.txt`, `tests_v2/integration/test_query_expansion_api.py`, `HANDOFF.md`. 기존 미커밋된 PRD/Qwen 작업 파일은 함께 stage하지 않았다.
+- 검증: API 통합 테스트 **1 passed**, Qwen 서비스 단위 테스트 **4 passed**, `git diff --check` 통과. Uvicorn을 로컬 실행하고 예시 JSON을 실제 Ollama `qwen3:8b`에 보내 HTTP 200 및 질문 10개·검색어 10개 응답을 확인한 뒤 서버를 종료했다. 테스트 환경에서 Starlette의 `httpx` 사용 deprecation 경고가 1건 나온다.
+- Qwen 연결 단계 파일: `app/research/query_expansion.py`, `app/research/query/`, `app/schemas/research.py`, `tests_v2/unit/test_qwen_query_expansion.py`. 이 파일들은 이번 Swagger 변경 전에 작업 트리에 있던 상태다.
+- 검증: 지정 단위 테스트 `tests_v2/unit/test_qwen_query_expansion.py` **4 passed** 및 `git diff --check` 통과. 설치된 `qwen3:8b`에 예시 이슈를 보내 실제 생성 결과 질문 10개·검색어 10개, 미연결 질문 0개를 확인했다(약 66초). 외부 API는 호출하지 않았다.
+- 필수 흐름은 이슈별 검색 계획 → 검색 및 실제 문서 읽기 → Evidence에 연결된 Fact → 정보 공백 판단과 예산 내 반복 검색 → 공개 반응의 채널/대상/감성/프레임/이유 분석 → 이슈·월간 종합 및 출처 추적 가능한 보고서다. 검색 가능한 공개 콘텐츠를 전체 여론으로 표현하지 않고, snippet만으로 VERIFIED Fact를 만들지 않는다.
+- 저장소의 사용자 지침을 계속 적용한다: 임의 schema 금지, 기존 Pydantic 모델 이름 유지, Repository 밖 DB write 금지, Collector의 LLM 호출 및 Analyzer의 웹 요청 금지, Writer의 신규 Fact 생성 금지, Evidence 없는 수치 금지. 각 모듈 변경에는 단위 테스트를 작성하고 통합 테스트 실패 시 다음 기능으로 넘어가지 않는다. PRD의 제안은 이 지침을 무효화하지 않는다.
+- 기존 2.0은 Streamlit, SQLite/SQLAlchemy, Repository, Collector, Evidence/Fact, Analytics, Narrative 및 Report 기반을 갖고 있다. PRD §63·§75는 FastAPI/PostgreSQL을 제안하지만, PRD §77은 먼저 기존 구조와 관례를 조사하도록 한다. 이전 [설계 초안](docs/superpowers/specs/2026-10-23-issuescope-engine-design.md)은 FastAPI/PostgreSQL 도입을 배제하고 기존 UI/DB 재사용을 제안해 PRD와 충돌한다. 이 초안과 [구현 계획](docs/superpowers/plans/2026-10-23-issuescope-engine.md)은 구현 승인이나 최신 결정이 아니며, 구현 전 PRD 및 사용자 지침 기준으로 재검토·수정해야 한다.
+- 기존 2.0의 `Issue`는 근거 기반 분석 그룹이다. 사용자 입력 Research Issue와 같은 개념이라고 간주하지 않는다. PRD 구현 시 기존 모델명과 저장/워크플로 경계를 확인하고, 구체 schema 변경은 사용자 지침을 만족하는 설계가 확정된 뒤에만 진행한다.
+- 다음 행동: 생성된 검색어를 검색 provider에 전달하고, 수집 결과를 근거 기반 Fact pipeline에 연결한다. UI 연결과 반복 조사 루프는 아직 구현하지 않았다.
+- PRD 검토 당시 이력: `PRD.md`를 새 브랜치에 복사하고 내용 일치 및 문서 diff를 확인했다. 당시에는 코드·schema·테스트 변경이 없었고 기능 구현도 시작하지 않았다.
 
 ## 1.0 정리
 
@@ -77,7 +93,7 @@ Python 3.12 기반 `.venv`에 `requirements-dev.txt`를 설치하고 `.env.examp
 
 앱이 시작 시 Alembic migration을 적용한다. 기본 DB는 `aiporg2.db`이고 환경변수 변경 후 프로세스를 재시작해야 한다. 상세 설치 명령은 [README](README.md#빠른-시작--streamlit-ui)에 있다.
 
-전체 테스트 결과는 **417 passed**다.
+2026-10-19 백그라운드 집계 변경 시점의 전체 테스트 결과는 **417 passed**였다. 이후 서술 보고서 레이아웃 작업에서 **431 passed**가 기록됐다. 이 수치는 모두 과거 실행 결과다.
 
 ## 직전 완료 작업: 통계 집계 백그라운드 실행 + 사이드바 진행 표시
 
@@ -91,7 +107,7 @@ Python 3.12 기반 `.venv`에 `requirements-dev.txt`를 설치하고 `.env.examp
 - 테스트: `tests_v2/unit/test_analytics_ui_queries.py`(bounded SQL 검증, 3건), `tests_v2/unit/test_analytics_jobs.py`(프로세스/IPC/락 머신 7건, 모듈 레벨 fake worker 필요 — spawn은 타겟을 import 참조로 pickle), `tests_v2/integration/test_analytics_jobs_integration.py`(실제 spawn 프로세스로 Alembic 마이그레이션된 임시 SQLite에 커밋/롤백 검증, 2건), `tests_v2/unit/test_analytics_ui.py`(`AppTest.from_function` 렌더 함수 7건 — 이 함수는 대상 함수의 소스만 재실행하고 모듈 전역(import, 상수)은 안 가져오므로, 테스트 래퍼가 자체적으로 import하도록 작성). 전체 `tests_v2`+`tests` **417 passed**(409 + 7 UI, 통계 집계 전용 테스트는 409건에 포함).
 - 다음 행동(결정 필요 없으면 보류): 실제 브라우저에서 긴 집계를 돌려 사이드바 갱신 체감 확인(자동화 테스트는 UI 함수 단위까지만 검증했고 실제 브라우저 메모리 개선을 직접 재현하지는 않았다). `AnalyticsJobManager`는 서버 프로세스당 1건만 허용하므로 여러 프로젝트를 동시에 집계할 수 없다 — 필요해지면 재설계 대상.
 
-## 최신 검토: 사용자 지정 이슈 기반 조사 엔진 (2026-10-20)
+## 이전 검토: 사용자 지정 이슈 기반 조사 엔진 (2026-10-20)
 
 - 최신 목표: 사용자가 기간·지역·핵심 이슈를 정하고 AI가 이슈별 검색 확장·반복 조사·검증·공개 반응 분석·월간 종합을 수행한다. 자동 이슈 발견·전체 뉴스 클러스터링·이슈 중요도 선정은 현재 목표에서 제외하며 이전 검토의 해당 우선순위는 철회한다.
 - 완료: Issue Research / Opinion Analysis / Report Synthesis 기준으로 현행 2.0 코드를 정적 비교했다. 기존 검색어별 이슈 구성이 출발점에는 가깝지만, 확장 검색어 여러 개를 원래 사용자 이슈에 연결하는 계약이 필요하다.
