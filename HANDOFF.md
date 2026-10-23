@@ -4,11 +4,17 @@
 
 ## 현재 목표와 구현 방향
 
-현재 작업 브랜치는 `feat/issue-driven-research`다. 이 브랜치의 서술 보고서 레이아웃 변경과 1.0 불필요 산출물/API 정리를 마무리했다. 전체 `tests_v2` 및 `tests` 결과는 **431 passed**다. IssueScope 기능 구현은 정리 기준 커밋 `ae7dcec`에서 분기한 별도 worktree `/private/tmp/AIPORG-issuescope`, branch `feat/issuescope-implementation`에서 진행한다. 원래 2.0 브랜치와 IssueScope 구현을 분리해 유지한다.
+`main`은 AIPORG 2.0의 최신 작업과 IssueScope PRD 문서를 함께 보유하는 기준 브랜치다. 기존 구현(수집·분석·서술·승인)과 1.0 정리는 유지하며, 새 PRD 기능은 `issue-driven-research-engine` 브랜치에서 새로 시작한다. PRD 설계는 [IssueScope design](docs/superpowers/specs/2026-10-23-issuescope-engine-design.md), 구현 계획은 [IssueScope plan](docs/superpowers/plans/2026-10-23-issuescope-engine.md)이다. 기존 2.0 전체 테스트 기록은 **431 passed**다.
 
-월별 키워드로 온라인 여론을 수집·분석하고, 근거가 연결된 서술과 표·그림을 사용자가 UI에서 수정·승인한 뒤 동일 승인본에서 DOCX·Markdown·HWPX를 출력한다. 제작 기준은 [7월 월간 보고서 요구사항](docs/aiporg2/monthly-keyword-report-requirements.md)이다. 4개 이슈는 12쪽 기본 목표이며 이슈 수·장문에 따라 확장한다.
+제품 목표는 사용자가 대상·기간·핵심 이슈를 지정하고, 시스템이 이슈별 조사·근거 검증·공개 반응 분석·월간 종합을 수행하는 범용 Issue Research & Analysis Engine이다. 자동 이슈 발굴과 전수 여론 주장은 MVP 범위에서 제외한다.
 
-현재 개발 대상은 `app/` + `streamlit_app/console.py`다. `aiporg/`는 기존 1.0이며 출력 기능이 있다고 해서 2.0에 포팅된 것으로 보지 않는다.
+월별 키워드 수집·분석과 근거가 연결된 서술, 사용자 검수·승인, HWPX 시제품은 기존 2.0 기반 기능이다. 제작 기준은 [7월 월간 보고서 요구사항](docs/aiporg2/monthly-keyword-report-requirements.md)이다.
+
+## 1.0 정리
+
+- 재생성 가능한 `output_live/`, `output_naver/`, `output_youtube/` 산출물과 사용되지 않던 커뮤니티·YouTube FastAPI 앱을 제거했다. FastAPI/Uvicorn도 의존성에서 삭제했다.
+- README와 1.0 CLI 예시의 존재하지 않던 2026-03 fixture 경로를 2026-06 설정으로 수정했다.
+- 새 `issue-driven-research-engine` branch는 이 기준에서 PRD 기능을 구현한다.
 
 ## 1.0 정리 검토 (2026-10-23)
 

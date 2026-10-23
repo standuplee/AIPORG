@@ -150,6 +150,8 @@ docs/               요구사항·설계·구현 기록
 ## 관련 문서
 
 - [현재 상태와 다음 행동](HANDOFF.md)
+- [새 Issue Research & Analysis Engine 설계](docs/superpowers/specs/2026-10-23-issuescope-engine-design.md)
+- [새 PRD 구현 계획](docs/superpowers/plans/2026-10-23-issuescope-engine.md)
 - [월간 키워드 보고서 요구사항·인수 조건](docs/aiporg2/monthly-keyword-report-requirements.md)
 - [서술 계약](docs/aiporg2/narrative-design.md)
 - [시각자료·보고서 승인 계약](docs/aiporg2/visualization-design.md)
