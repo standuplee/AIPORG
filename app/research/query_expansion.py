@@ -51,7 +51,7 @@ class _RequestsTransport:
             url,
             json=dict(json_body),
             # Local 8B structured generation can exceed a normal web API timeout.
-            timeout=120,
+            timeout=600,
         )
 
 
@@ -67,7 +67,9 @@ class QwenQueryExpansionService:
         self.base_url = base_url.rstrip("/")
         self.transport = transport or _RequestsTransport()
 
-    async def chat(self, system: str, user: str, schema: type[BaseModel]) -> Any:
+    async def chat(
+        self, system: str, user: str, schema: type[BaseModel], *, num_ctx: int | None = None
+    ) -> Any:
         response = await self.transport.post(
             f"{self.base_url}/api/chat",
             json_body={
@@ -75,7 +77,8 @@ class QwenQueryExpansionService:
                 "stream": False,
                 "think": False,
                 "format": schema.model_json_schema(),
-                "options": {"temperature": 0.2},
+                # Ollama's default context window is small and silently truncates long prompts.
+                "options": {"temperature": 0.2, **({"num_ctx": num_ctx} if num_ctx else {})},
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
