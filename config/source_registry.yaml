@@ -1,0 +1,23 @@
+# 도메인 → 출처 유형. 새 지역·이슈는 코드가 아니라 이 파일만 확장한다.
+# 호스트가 도메인과 같거나 그 하위 도메인이면 일치하고, 가장 긴 도메인이 우선한다.
+GOVERNMENT:
+  - chungnam.go.kr
+  - go.kr
+  - korea.kr
+LEGISLATURE:
+  - assembly.go.kr
+  - council.chungnam.kr
+PUBLIC_AGENCY:
+  - or.kr
+COMPANY:
+  - samsungdisplay.com
+  - samsung.com
+COMMUNITY:
+  - dcinside.com
+  - clien.net
+  - fmkorea.com
+  - ruliweb.com
+  - theqoo.net
+BLOG:
+  - blog.naver.com
+  - tistory.com

@@ -123,6 +123,10 @@ def build_user_prompt(
 - locations: 입력에 명시된 지역
 - organizations: 입력에 명시된 기관
 - policies: 입력에 명시된 정책·사업명
+- persons: 입력에 명시된 인물
+- dates: 입력에 명시된 날짜·시기
+- laws: 입력에 명시된 법률·법안
+- projects: 입력에 명시된 사업·프로젝트명
 - explicit_in_input: 아래 이슈 문자열에 실제 포함된 표현만
 - unknowns: 검색으로 확인해야 할 미확인 항목
 

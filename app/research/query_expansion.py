@@ -67,7 +67,7 @@ class QwenQueryExpansionService:
         self.base_url = base_url.rstrip("/")
         self.transport = transport or _RequestsTransport()
 
-    async def _chat(self, system: str, user: str, schema: type[BaseModel]) -> Any:
+    async def chat(self, system: str, user: str, schema: type[BaseModel]) -> Any:
         response = await self.transport.post(
             f"{self.base_url}/api/chat",
             json_body={
@@ -91,7 +91,7 @@ class QwenQueryExpansionService:
 
     async def expand(self, issue: IssueInput) -> QueryExpansionResult:
         # Qwen #1: research questions only.
-        plan = await self._chat(
+        plan = await self.chat(
             SYSTEM_PROMPT,
             build_user_prompt(
                 issue.region,
@@ -114,7 +114,7 @@ class QwenQueryExpansionService:
         # Qwen #2: lexical query variants per question. REACTION gets neutral
         # corpus queries from code so the query itself cannot steer sentiment.
         asked = [q for q in plan.research_questions if q.type is not QueryType.REACTION]
-        drafts = await self._chat(
+        drafts = await self.chat(
             QUERY_SYSTEM_PROMPT,
             build_query_prompt(
                 issue.region,

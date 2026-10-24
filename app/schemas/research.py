@@ -60,6 +60,10 @@ class IssueDecomposition(SchemaBase):
     policies: list[str]
     explicit_in_input: list[str]
     unknowns: list[str]
+    persons: list[str] = Field(default_factory=list)
+    dates: list[str] = Field(default_factory=list)
+    laws: list[str] = Field(default_factory=list)
+    projects: list[str] = Field(default_factory=list)
 
 
 class QueryDraft(SchemaBase):

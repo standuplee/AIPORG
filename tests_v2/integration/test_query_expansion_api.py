@@ -16,6 +16,7 @@ def test_swagger_endpoint_accepts_issue_and_returns_research_plan(monkeypatch) -
             "policies": [],
             "explicit_in_input": ["삼성디스플레이", "67조", "투자"],
             "unknowns": ["투자 대상 지역"],
+            "persons": [], "dates": [], "laws": [], "projects": [],
         },
         "protected_terms": ["충청남도", "삼성디스플레이", "67조", "투자"],
         "research_questions": [],
