@@ -1,5 +1,6 @@
 """Contracts for issue-driven research planning."""
 
+from collections import Counter
 from datetime import date
 from enum import Enum
 
@@ -16,6 +17,12 @@ class QueryType(str, Enum):
     CONCERN = "CONCERN"
     REACTION = "REACTION"
     FOLLOWUP = "FOLLOWUP"
+
+
+class SearchPurpose(str, Enum):
+    FACT_RESEARCH = "FACT_RESEARCH"
+    OPINION_CORPUS = "OPINION_CORPUS"
+    FRAME_DISCOVERY = "FRAME_DISCOVERY"
 
 
 class IssueInput(SchemaBase):
@@ -41,27 +48,80 @@ class SearchQuery(SchemaBase):
     research_question_id: str = Field(min_length=1)
     type: QueryType
     query: str = Field(min_length=1)
-    purpose: str = Field(min_length=1)
+    search_purpose: SearchPurpose
+
+
+class IssueDecomposition(SchemaBase):
+    subjects: list[str]
+    actions: list[str]
+    amounts: list[str]
+    locations: list[str]
+    organizations: list[str]
+    policies: list[str]
+    explicit_in_input: list[str]
+    unknowns: list[str]
+
+
+class QueryDraft(SchemaBase):
+    """Qwen #2 output: lexical query variants for one research question."""
+
+    research_question_id: str = Field(min_length=1)
+    queries: list[str] = Field(min_length=1, max_length=3)
+
+
+class QueryDraftSet(SchemaBase):
+    drafts: list[QueryDraft]
+
+
+_QUESTION_MIX = Counter(
+    {
+        "FACT": 2,
+        "DETAIL": 2,
+        "BACKGROUND": 1,
+        "IMPACT": 2,
+        "CONCERN": 2,
+        "REACTION": 1,
+        "FOLLOWUP": 1,
+    }
+)
+
+
+def _validate_questions(questions: list[ResearchQuestion]) -> None:
+    if Counter(question.type.value for question in questions) != _QUESTION_MIX:
+        raise ValueError("research questions must match the required 11 question types")
+    if len({question.id for question in questions}) != len(questions):
+        raise ValueError("research question ids must be unique")
+
+
+class ResearchPlan(SchemaBase):
+    """Qwen #1 output: decomposition and research questions, no search queries."""
+
+    decomposition: IssueDecomposition
+    research_questions: list[ResearchQuestion] = Field(min_length=11, max_length=11)
+
+    @model_validator(mode="after")
+    def validate_questions(self) -> "ResearchPlan":
+        _validate_questions(self.research_questions)
+        return self
 
 
 class QueryExpansionResult(SchemaBase):
     issue: str = Field(min_length=1)
-    protected_entities: list[str] = Field(default_factory=list)
-    research_questions: list[ResearchQuestion] = Field(min_length=1, max_length=10)
-    queries: list[SearchQuery] = Field(min_length=1, max_length=10)
+    decomposition: IssueDecomposition
+    protected_terms: list[str] = Field(default_factory=list)
+    research_questions: list[ResearchQuestion] = Field(min_length=11, max_length=11)
+    queries: list[SearchQuery] = Field(min_length=11)
 
     @model_validator(mode="after")
     def validate_query_links(self) -> "QueryExpansionResult":
+        _validate_questions(self.research_questions)
         questions = {question.id: question for question in self.research_questions}
-        if len(questions) != len(self.research_questions):
-            raise ValueError("research question ids must be unique")
-        query_question_ids = {query.research_question_id for query in self.queries}
-        if set(questions) != query_question_ids:
-            raise ValueError("every research question must have at least one search query")
+        if set(query.research_question_id for query in self.queries) != set(questions):
+            raise ValueError("each research question must have at least one search query")
+        normalized_queries = [" ".join(query.query.casefold().split()) for query in self.queries]
+        if len(normalized_queries) != len(set(normalized_queries)):
+            raise ValueError("duplicate search queries are not allowed")
         for query in self.queries:
-            question = questions.get(query.research_question_id)
-            if question is None:
-                raise ValueError("every query must reference a research question")
-            if query.type != question.type:
+            if query.type != questions[query.research_question_id].type:
                 raise ValueError("query type must match its research question type")
         return self
