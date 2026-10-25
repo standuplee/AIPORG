@@ -105,3 +105,20 @@ def test_synthesizer_prefers_official_sources_and_drops_unsourced_facts():
     assert [t.event for t in out.timeline] == ["a", "b", "c"]  # ISO dates ascending, free-text dates after
     assert seen["num_ctx"] == NUM_CTX and [d["result_id"] for d in seen["user"]["documents"]] == ["g1", "n1", "n2"]
     assert len(seen["user"]["documents"][0]["excerpt"]) <= 3000
+
+
+def test_document_ids_pasted_into_prose_are_stripped():
+    import re
+
+    from app.search.synthesizer import synthesize_facts
+
+    class FakeQwen:
+        async def chat(self, system, user, schema, *, num_ctx=None):
+            return FactResearchResult(
+                summary="s", key_facts=[], organizations=[], persons=[], locations=[], current_status=None, timeline=[],
+                uncertainties=["일정이 실제 이행될지 확인 필요: 828fff21f9e8, 673e9e6c73da", "828fff21f9e8"],
+                missing_information=["착공일 (근거 7446dbcf7830)"], )
+
+    issue = IssueInput(region="충청남도", start_date=datetime(2026, 9, 1).date(), end_date=datetime(2026, 9, 30).date(), issue="x")
+    out = asyncio.run(synthesize_facts(FakeQwen(), issue, [ResearchQuestion(id="RQ01", type="FACT", question="?")], [_doc("g1")]))
+    assert out.uncertainties == ["일정이 실제 이행될지 확인 필요"] and not re.search(r"[0-9a-f]{12}", " ".join(out.uncertainties + out.missing_information))

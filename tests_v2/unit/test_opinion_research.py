@@ -6,8 +6,8 @@ from app.search import base
 from app.search.documents import FactResearchResult
 from app.search.naver import NaverSearchProvider
 from app.search.opinion import (
-    EvidenceCheck, EvidenceCheckBatch, OpinionAnalysis, OpinionFilterBatch, OpinionFilterResult, OverallSentiment, ReactionTheme, ReactionTone,
-    analyze_opinion, analyze_reactions, approved_from_review, build_queries, channel_insights, check_reaction, collect_corpus, filter_posts, find_reaction_candidates, key_terms, review_rows, summarize_tone, top_keywords,
+    DiscussionTopic, EvidenceCheck, EvidenceCheckBatch, OpinionAnalysis, TopicExtraction, OpinionFilterBatch, OpinionFilterResult, OverallSentiment, ReactionTheme, ReactionTone,
+    analyze_opinion, analyze_reactions, build_queries, channel_insights, check_reaction, collect_corpus, filter_posts, find_reaction_candidates, key_terms, summarize_tone, top_keywords,
 )
 from app.search.schemas import SearchChannel as C
 from app.search.schemas import SearchProvider, SearchResult
@@ -67,9 +67,11 @@ WORRY = "예산이 걱정된다"
 class _FilterQwen:
     """Title keywords steer the verdict so each gate can be tested."""
 
-    def __init__(self, analysis_for=None):
+    def __init__(self, analysis_for=None, topics_for=None):
         self.analysis_for = analysis_for
+        self.topics_for = topics_for or (lambda posts: TopicExtraction(topics=[]))
         self.payload = None
+        self.topic_payload = None
 
     async def chat(self, system, user, schema, *, num_ctx=None):
         import json
@@ -78,6 +80,9 @@ class _FilterQwen:
         if schema is EvidenceCheckBatch:  # second look at the quoted phrase only
             return EvidenceCheckBatch(checks=[
                 EvidenceCheck(result_id=i["result_id"], is_actual_reaction="구호" not in i["title"], reason="r") for i in data["items"]])
+        if schema is TopicExtraction:
+            self.topic_payload = data
+            return self.topics_for(data["posts"])
         if schema is not OpinionFilterBatch:
             self.payload = data
             return self.analysis_for(data["posts"])
@@ -121,7 +126,7 @@ def test_each_gate_blocks_what_it_should_and_only_verified_reactions_reach_theme
 
     def analysis(posts):
         return OpinionAnalysis(
-            key_topics=["아산", "삼성디스플레이 67조 투자"], analysis_summary="s",
+            analysis_summary="s",
             reaction_themes=[_theme(ReactionTone.POSITIVE, ids[:4]),
                              _theme(ReactionTone.CONCERN, [ids[4], "ghost"], "전력 부족"),
                              _theme(ReactionTone.CONCERN, [slogan.result_id, "ghost"], "근거없음")])
@@ -137,7 +142,6 @@ def test_each_gate_blocks_what_it_should_and_only_verified_reactions_reach_theme
     assert [r.result_id for r in out.reactions] == ids and out.reactions[0].reaction_evidence == WORRY
     assert out.reactions[0].verification_reason == "r"
     assert [(t.theme, t.source_result_ids) for t in out.reaction_themes] == [("쉼터 확대", ids[:4]), ("전력 부족", [ids[4]])]
-    assert out.key_topics == ["아산"]
     assert out.overall_sentiment is OverallSentiment.POSITIVE
     assert [(c.channel, c.sample_size) for c in out.channel_insights] == [("BLOG", 6)]
 
@@ -204,23 +208,67 @@ def test_filter_retries_skipped_posts_and_fails_loudly_otherwise():
         asyncio.run(filter_posts(Never(), ISSUE, corpus))
 
 
-def test_human_review_between_the_two_stages_decides_what_becomes_a_theme():
+def test_stage_two_builds_themes_only_from_the_approved_subset():
     corpus = [_post(i, "의견") for i in range(6)]
     ids = [h.result_id for h in corpus]
     qwen = _FilterQwen(lambda posts: OpinionAnalysis(
-        key_topics=["아산"], analysis_summary="s", reaction_themes=[_theme(ReactionTone.CONCERN, [p["result_id"] for p in posts])]))
+        analysis_summary="s", reaction_themes=[_theme(ReactionTone.CONCERN, [p["result_id"] for p in posts])]))
     found = asyncio.run(find_reaction_candidates(qwen, ISSUE, ["q"], corpus, {}, []))
     assert [c.result_id for c in found.candidates] == ids and found.candidates[0].url.startswith("https:")
     assert qwen.payload is None  # stage 1 never builds themes
 
-    rows = review_rows(found)
-    assert all(r["approved"] for r in rows) and rows[0]["reaction_evidence"] == WORRY
-    for r in rows[:4]:
-        r["approved"] = False                      # the reviewer strikes four of the six
-    approved = approved_from_review(rows)
-    out = asyncio.run(analyze_reactions(qwen, ISSUE, found, approved))
+    out = asyncio.run(analyze_reactions(qwen, ISSUE, found, set(ids[:2])))      # the reviewer approved only two
     assert out.reaction_count == 2 and out.filtered_out["reviewer_rejected"] == 4
-    assert out.analysis_summary.startswith("분석 가능한 온라인 반응이 부족함") and qwen.payload is None  # 2 < minimum: no invented themes
+    assert out.analysis_summary.startswith("분석 가능한 온라인 반응이 부족함") and qwen.payload is None  # below minimum: no themes
 
     out = asyncio.run(analyze_reactions(qwen, ISSUE, found, set(ids[:5])))
     assert [p["result_id"] for p in qwen.payload["posts"]] == ids[:5] and out.reaction_themes[0].source_result_ids == ids[:5]
+
+
+def _topic(name, ids):
+    return DiscussionTopic(topic=name, summary="다뤄진다", source_result_ids=ids)
+
+
+def test_discussion_layer_uses_policy_and_news_posts_and_code_counts_the_support():
+    policy = [_hit(i, f"삼성디스플레이 정책 {i} 고용 전환 대책") for i in range(3)]
+    repost = [_hit(10 + i, f"삼성디스플레이 재게시 {i} 고용 전환 통합본사") for i in range(2)]
+    reaction = [_post(20, "의견")]
+    unrelated = [_post(30, "무관")]
+    pid = [h.result_id for h in policy]
+    rid = [h.result_id for h in repost]
+
+    def topics(posts):
+        return TopicExtraction(topics=[
+            _topic("고용 전환 지원", pid[:2] + [rid[0], "ghost"]),     # 3 real posts
+            _topic("고용 전환 대책", pid[:2] + [rid[0]]),             # same posts, different name -> dropped
+            _topic("외톨이", [pid[2]]),                                # one post -> not a topic
+            _topic("유령", ["ghost", "ghost2"]),                       # sources Qwen was never shown
+            _topic("고용 전환 지원", pid),                              # duplicate name
+            _topic("삼성디스플레이 67조 투자", pid),                    # the issue itself is not a topic
+            _topic("통합본사", [pid[0], rid[1], rid[0]]),               # pid[0] does not mention it: code removes that claim
+            _topic("엉뚱한 주제", pid + rid),                           # Qwen cites everything, no post mentions it
+        ])
+
+    qwen = _FilterQwen(topics_for=topics)
+    found = asyncio.run(find_reaction_candidates(qwen, ISSUE, ["q"], policy + repost + reaction + unrelated, {}, []))
+    assert len(found.discussion_posts) == 6                                     # everything relevant, unrelated excluded
+    assert {p.content_type for p in found.discussion_posts} == {"POLICY_INFORMATION", "NEWS_REPOST", "REACTION"}
+    assert all("무관" not in p["title"] for p in qwen.topic_payload["posts"])
+    got = {t.topic: t for t in found.topics}
+    assert [(t.topic_id, t.topic) for t in found.topics] == [("T1", "고용 전환 지원"), ("T2", "통합본사")]
+    assert set(got["고용 전환 지원"].source_result_ids) == {pid[0], pid[1], rid[0]}
+    assert set(got["통합본사"].source_result_ids) == set(rid)                   # re-derived from the posts' own words
+
+    out = asyncio.run(analyze_reactions(qwen, ISSUE, found, approved_topic_ids={"T2"}))   # the reviewer keeps only T2
+    assert out.key_topics == ["통합본사"] and [t.topic_id for t in out.discussion_topics] == ["T2"]
+    assert out.discussion_size == 6 and out.reaction_count == 1
+    assert out.analysis_summary.startswith("분석 가능한 온라인 반응이 부족함")   # topics exist, reactions do not: kept separate
+    assert out.keywords  # keywords draw on the whole discussion, not only on the single reaction
+
+
+def test_a_topic_nearly_every_post_mentions_is_dropped_as_the_issue_itself():
+    posts = [_hit(i, f"삼성디스플레이 특별법 통과 {i}" + (" 통합본사" if i < 3 else "")) for i in range(12)]
+    qwen = _FilterQwen(topics_for=lambda ps: TopicExtraction(topics=[
+        _topic("특별법 통과", [p["result_id"] for p in ps]), _topic("통합본사", [p["result_id"] for p in ps])]))
+    found = asyncio.run(find_reaction_candidates(qwen, ISSUE, ["q"], posts, {}, []))
+    assert [t.topic for t in found.topics] == ["통합본사"] and len(found.topics[0].source_result_ids) == 3

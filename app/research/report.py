@@ -11,7 +11,7 @@ from app.research.query_expansion import QwenQueryExpansionService
 from app.schemas.common import SchemaBase
 from app.schemas.research import IssueInput
 from app.search.documents import FactResearchResult
-from app.search.opinion import INSUFFICIENT, OpinionResearchResult, ReactionTheme
+from app.search.opinion import INSUFFICIENT, DiscussionTopic, OpinionResearchResult, ReactionTheme
 
 IMPLICATION_PROMPT = """
 당신은 지방정부 월간 이슈 보고서의 시사점 작성자다.
@@ -25,6 +25,8 @@ IMPLICATION_PROMPT = """
 5. 각 시사점은 사실 정리의 항목과 reaction_themes의 논점을 직접 연결할 수 있어야 한다.
 6. 제공된 reaction_themes에 없는 시민·주민·지역사회·업계·노동계의 기대·우려·평가·요구·반응을 서술하지 않는다.
    상식적으로 예상되는 경제적 효과, 사회적 기대, 우려, 파급효과를 새로 추론하지 않는다.
+7. discussion_topics는 "수집된 글에서 반복해서 다뤄진 논점"이다. "~가 주요 논점으로 다뤄졌다"까지만 쓸 수 있고,
+   시민의 기대나 우려가 있다고 쓰지 않는다.
 """
 
 FACT_ONLY_PROMPT = """
@@ -37,6 +39,7 @@ FACT_ONLY_PROMPT = """
 2. 사실만으로 시사점을 쓸 때는 확인, 모니터링, 진행 상황 점검처럼 해당 사실에서 직접 이어지는 관리 포인트만 쓴다.
 3. 상식적으로 예상되는 경제적 효과, 사회적 기대, 우려, 파급효과를 새로 추론하지 않는다.
 4. 입력에 없는 사실, 기관, 숫자를 만들지 않는다. 계획이나 협약을 완료된 것처럼 쓰지 않는다.
+5. discussion_topics가 있으면 "~가 주요 논점으로 다뤄졌다"까지만 쓸 수 있다. 그것을 시민의 기대나 우려로 바꾸지 않는다.
 """
 # Last-resort insurance only; the prompts above are the real control. Keep this list short.
 _OPINION_WORDS = ("기대", "우려", "여론", "반응")
@@ -62,6 +65,9 @@ class IssueReport(SchemaBase):
     timeline: list[str]
     overall_tone: str
     reaction_summary: str
+    discussion_topics: list[DiscussionTopic]
+    topic_sources: list[SourceRef]
+    discussion_size: int
     reaction_themes: list[ReactionTheme]
     reaction_sources: list[SourceRef]
     sample_size: int
@@ -93,7 +99,11 @@ async def build_report(
     upstream = json.dumps(
         {"facts": fact.model_dump(mode="json"), "opinion": opinion.model_dump(mode="json")}, ensure_ascii=False
     )
-    facts_only = {"issue": issue.issue, "facts": [f.fact for f in fact.key_facts], "current_status": fact.current_status, "uncertainties": fact.uncertainties}
+    facts_only = {
+        "issue": issue.issue, "facts": [f.fact for f in fact.key_facts], "current_status": fact.current_status,
+        "uncertainties": fact.uncertainties,
+        "discussion_topics": [{"topic": t.topic, "summary": t.summary} for t in opinion.discussion_topics],
+    }
     if no_opinion:
         draft: ImplicationDraft = await qwen.chat(FACT_ONLY_PROMPT, json.dumps(facts_only, ensure_ascii=False), ImplicationDraft)
     else:
@@ -123,6 +133,10 @@ async def build_report(
         timeline=[f"{t.date or '일자 미상'}: {t.event}" for t in fact.timeline],
         overall_tone=INSUFFICIENT if no_opinion else opinion.overall_sentiment.value,
         reaction_summary=opinion.analysis_summary.removeprefix(INSUFFICIENT).lstrip(". ") if no_opinion else opinion.analysis_summary,
+        discussion_topics=opinion.discussion_topics,
+        topic_sources=[SourceRef(result_id=i, title=opinion_index[i][0], url=opinion_index[i][1])
+                       for i in dict.fromkeys(i for t in opinion.discussion_topics for i in t.source_result_ids) if i in opinion_index],
+        discussion_size=opinion.discussion_size,
         reaction_themes=opinion.reaction_themes,
         reaction_sources=[SourceRef(result_id=i, title=opinion_index[i][0], url=opinion_index[i][1])
                           for i in dict.fromkeys(i for t in opinion.reaction_themes for i in t.source_result_ids) if i in opinion_index],
@@ -151,6 +165,12 @@ def render_markdown(r: IssueReport) -> str:
         + (" 근거: " + ", ".join(link[i] for i in t.source_result_ids[:3] if i in link) if t.source_result_ids else "")
         for t in r.reaction_themes
     ]
+    tlink = {x.result_id: f"[{x.title}]({x.url})" for x in r.topic_sources}
+    topics = [
+        f"**{t.topic}** — {t.summary} (근거 글 {len(t.source_result_ids)}건: " + ", ".join(tlink[i] for i in t.source_result_ids[:3] if i in tlink) + ")"
+        for t in r.discussion_topics
+    ]
+    out += ["", "## 주요 논점", f"수집된 관련 글 {r.discussion_size}건에서 반복해서 다뤄진 논점이며, 여론의 방향(기대·우려)을 뜻하지 않는다.", bullets(topics)]
     out += ["", "## 여론 표정", f"**{r.overall_tone}** (유효 반응 {r.sample_size}건)" + (f" — {r.reaction_summary}" if r.reaction_summary else ""), "", "주요 반응", bullets(themes),
             "", "## 연관 키워드", ", ".join(r.keywords) or "(없음)", "", "## 채널별 특징", bullets(r.channel_notes),
             "", "## 시사점"]

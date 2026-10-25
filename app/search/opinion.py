@@ -10,6 +10,8 @@ from enum import Enum
 from itertools import zip_longest
 from typing import Literal
 
+from pydantic import Field
+
 from app.analytics.service import _extract_keyword_tokens
 from app.research.query.regions import REGION_ALIASES
 from app.research.query_expansion import QwenQueryExpansionService
@@ -25,6 +27,10 @@ MAX_QUERIES = 5
 PER_QUERY_LIMIT = 15
 MAX_ANALYZED = 40
 MIN_CHANNEL_POSTS = 3
+MIN_TOPIC_SOURCES = 2  # a topic needs at least this many distinct posts behind it
+MAX_TOPICS = 8
+MAX_TOPIC_SHARE = 0.8  # a topic nearly every post mentions is the issue itself, not a topic
+SAME_SOURCES = 0.8  # Jaccard overlap of source sets above which two topics count as duplicates
 SNIPPET_CHARS = 200
 NUM_CTX = 16384
 LIMITATIONS = "네이버·다음 검색 API가 반환한 블로그·카페 글 표본이며 전체 온라인 여론이 아니다. 비율은 산출하지 않았다."
@@ -62,11 +68,32 @@ class ChannelInsight(SchemaBase):
 
 
 class OpinionAnalysis(SchemaBase):
-    """What Qwen produces: reactions and topics, never an overall verdict."""
+    """What Qwen produces for the reaction layer: themes and a summary, never an overall verdict."""
 
     reaction_themes: list[ReactionTheme]
-    key_topics: list[str]
     analysis_summary: str
+
+
+class DiscussionTopic(SchemaBase):
+    """What the collected posts keep talking about (facts, policy and news included). Says nothing about sentiment."""
+
+    topic_id: str = ""  # assigned in code
+    topic: str
+    summary: str
+    source_result_ids: list[str]
+
+
+class TopicExtraction(SchemaBase):
+    topics: list[DiscussionTopic]
+
+
+class DiscussionPost(SchemaBase):
+    result_id: str
+    channel: str
+    title: str
+    url: str
+    snippet: str
+    content_type: str
 
 
 ContentType = Literal["REACTION", "POLICY_INFORMATION", "NEWS_REPOST", "UNRELATED"]
@@ -75,6 +102,7 @@ ContentType = Literal["REACTION", "POLICY_INFORMATION", "NEWS_REPOST", "UNRELATE
 class OpinionFilterResult(SchemaBase):
     result_id: str
     relevant: bool  # is about this issue in this region
+    relevance_reason: str | None = None  # one sentence a reviewer can check: why this post is about the issue
     content_type: ContentType
     reaction_evidence: str | None = None  # verbatim phrase from the post; required for REACTION
 
@@ -99,6 +127,7 @@ class ReactionPost(SchemaBase):
     verification_reason: str
     url: str
     snippet: str
+    relevance_reason: str | None = None
 
 
 class OpinionCandidates(SchemaBase):
@@ -111,6 +140,8 @@ class OpinionCandidates(SchemaBase):
     filtered_out: dict[str, int]
     exclude_keywords: list[str]
     candidates: list[ReactionPost]
+    discussion_posts: list[DiscussionPost] = Field(default_factory=list)  # every relevant post, reactions or not
+    topics: list[DiscussionTopic] = Field(default_factory=list)
 
 
 class OpinionFilterBatch(SchemaBase):
@@ -123,6 +154,9 @@ class KeywordCount(SchemaBase):
 
 
 class OpinionResearchResult(OpinionAnalysis):
+    key_topics: list[str]  # names of the discussion topics the reviewer kept
+    discussion_topics: list[DiscussionTopic]
+    discussion_size: int  # relevant posts the discussion layer drew on
     overall_sentiment: OverallSentiment  # last-step summary computed in code from the themes
     channel_insights: list[ChannelInsight]
     issue: str
@@ -147,6 +181,8 @@ FILTER_PROMPT = """
 당신은 온라인 글 선별기다. 각 글의 제목과 요약만 보고 판정한다.
 
 relevant: 입력된 지역(region)의 이 이슈(issue) 자체를 다루는 글인가?
+relevance_reason: relevant 판정의 이유를 한 문장으로. 이슈와 같은 단어가 있다는 이유만으로 relevant로 보지 않는다.
+ - 다른 지역·해외 사례, 일반 기후·환경 논의, 이슈의 정책과 직접 관련 없는 글은 relevant=false.
 
 content_type (하나만):
  - REACTION: 이 이슈·정책에 대해 작성자 또는 인용된 제3자가 평가, 기대, 우려, 비판, 요구, 체감, 경험, 문제 제기를
@@ -203,8 +239,22 @@ OPINION_PROMPT = """
    "사람들이 그 목표를 요구·기대한다"로 바꾸지 않는다. 직접 뒷받침되지 않으면 그 논점을 만들지 않는다.
    뒷받침되는 논점이 없으면 reaction_themes를 빈 목록으로 둔다.
 4. 퍼센트, 건수 같은 숫자를 쓰지 않는다. 전체 분위기를 판정하지 않는다.
-5. key_topics는 글에서 반복되는 화제 5~10개. 이슈 이름 자체는 제외한다.
-6. analysis_summary는 논점들을 한두 문장으로 요약한다. 논점에 없는 내용을 쓰지 않는다.
+5. analysis_summary는 논점들을 한두 문장으로 요약한다. 논점에 없는 내용을 쓰지 않는다.
+"""
+
+TOPIC_PROMPT = """
+당신은 월간 이슈 보고서를 위한 논점 정리 보조자다. 이 이슈에 대해 수집된 온라인 글(기사 전재, 정책 소개, 보도자료, 블로그 포함)에서
+**반복적으로 다뤄지는 논점**을 뽑는다. 논점은 "무엇이 많이 이야기되는가"이며, 사람들의 기대·우려·평가가 아니다.
+
+규칙:
+1. 논점은 짧은 이름(topic)과 한 문장 설명(summary)으로 쓴다. 예) "노동자 고용 전환", "폐쇄지역 경제 충격", "발전공기업 통합본사 유치".
+2. source_result_ids에는 그 논점을 실제로 다루는 글의 id를 모두 넣는다. 서로 다른 글 2건 이상이 다루는 논점만 만든다.
+3. 사실·정책·기사 내용도 논점이 될 수 있다. 단, summary는 반드시 "이 글들은 ~를 다룬다" 또는 "~가 논의된다" 꼴로 쓴다.
+   무엇이 마련되었다·통과되었다·해결된다처럼 일어난 일로 단정하지 않고, 시민·지역사회·업계의 기대, 우려, 평가, 요구, 반응이
+   있다고도 쓰지 않는다.
+4. 논점끼리 서로 다른 주제여야 한다. 같은 글 묶음을 이름만 바꿔 여러 논점으로 만들지 않는다.
+5. 이슈 이름 자체는 논점이 아니다. 입력에 없는 사실과 숫자를 만들지 않는다.
+6. 논점은 최대 8개.
 """
 
 
@@ -219,15 +269,6 @@ def build_queries(issue: IssueInput, fact: FactResearchResult | None = None) -> 
 
 # Words that are frequent in any news-like text and say nothing about a specific issue.
 GENERIC_KEYWORDS = frozenset({"규모", "계획", "발표", "지원", "통과", "마련", "대응", "추진", "관련", "이번", "통해", "위해", "국회", "구축", "확대"})
-_LEAKED_KEY = re.compile(r'^\s*["“”]?\w+["“”]\s*:')
-
-
-def _clean_list(items: list[str], drop: list[str] = ()) -> list[str]:
-    """Drop JSON fragments Qwen sometimes leaks into string lists, and echoes of the issue itself."""
-    banned = {_norm(d) for d in drop}
-    return [x for x in items if x.strip() and not _LEAKED_KEY.match(x) and _norm(x) not in banned]
-
-
 def _norm(text: str) -> str:
     return re.sub(r"\s+", "", text).casefold()
 
@@ -370,6 +411,46 @@ def channel_insights(posts: list[ReactionPost], themes: list[ReactionTheme]) -> 
     return out
 
 
+async def extract_topics(
+    qwen: QwenQueryExpansionService, issue: IssueInput, posts: list[DiscussionPost]
+) -> list[DiscussionTopic]:
+    """Discussion layer. Qwen names the topics; code decides which survive by counting the distinct posts behind each."""
+    if len(posts) < MIN_TOPIC_SOURCES:
+        return []
+    by_channel: dict[str, list[DiscussionPost]] = {}
+    for p in posts:
+        by_channel.setdefault(p.channel, []).append(p)
+    sample = [p for group in zip_longest(*by_channel.values()) for p in group if p][:MAX_ANALYZED]
+    shown = {p.result_id for p in sample}
+    payload = json.dumps(
+        {"region": issue.region, "issue": issue.issue,
+         "posts": [{"result_id": p.result_id, "channel": p.channel, "title": p.title, "summary": p.snippet} for p in sample]},
+        ensure_ascii=False,
+    )
+    out: TopicExtraction = await qwen.chat(TOPIC_PROMPT, payload, TopicExtraction, num_ctx=NUM_CTX)
+    text = {p.result_id: _norm(f"{p.title} {p.snippet}") for p in posts}
+    topics, seen = [], set()
+    for t in out.topics:
+        # Qwen tends to paste one long id list under every topic, so support is re-derived in code: a post backs a
+        # topic only if it actually contains most of the topic name's words.
+        words = [w for w in _extract_keyword_tokens(t.topic) if w not in GENERIC_KEYWORDS]
+        need = max(1, len(words) // 2)
+        ids = [i for i in dict.fromkeys(t.source_result_ids) if i in shown and sum(_norm(w) in text[i] for w in words) >= need] if words else []
+        topics.append((t, ids))
+    kept: list[DiscussionTopic] = []
+    for t, ids in sorted(topics, key=lambda x: -len(x[1])):
+        if len(ids) < MIN_TOPIC_SOURCES or not t.topic.strip() or _norm(t.topic) in seen or _norm(t.topic) == _norm(issue.issue):
+            continue
+        if len(sample) >= 10 and len(ids) / len(sample) > MAX_TOPIC_SHARE:
+            continue
+        # Several topics that cite almost the same posts are one topic with different names; keep the first.
+        if any(len(set(ids) & set(k.source_result_ids)) / len(set(ids) | set(k.source_result_ids)) >= SAME_SOURCES for k in kept):
+            continue
+        seen.add(_norm(t.topic))
+        kept.append(t.model_copy(update={"source_result_ids": ids}))
+    return [t.model_copy(update={"topic_id": f"T{n}"}) for n, t in enumerate(kept[:MAX_TOPICS], 1)]
+
+
 async def find_reaction_candidates(
     qwen: QwenQueryExpansionService,
     issue: IssueInput,
@@ -389,14 +470,21 @@ async def find_reaction_candidates(
     for r in quoted:
         if not checks[r.result_id].is_actual_reaction:
             reasons[r.result_id] = "verification_rejected"
+    discussion = [
+        DiscussionPost(result_id=r.result_id, channel=r.channel.value, title=r.title, url=r.original_url or r.url,
+                       snippet=r.snippet[:SNIPPET_CHARS], content_type=verdicts[r.result_id].content_type)
+        for r in corpus if reasons[r.result_id] != "unrelated"
+    ]
+    topics = await extract_topics(qwen, issue, discussion)
     return OpinionCandidates(
         issue=issue.issue, queries=queries, corpus_size=len(corpus),
         relevant_count=sum(1 for r in corpus if reasons[r.result_id] != "unrelated"),
         filtered_out={**filtered_out, **Counter(v for v in reasons.values() if v != "ok")},
-        exclude_keywords=exclude_keywords,
+        exclude_keywords=exclude_keywords, discussion_posts=discussion, topics=topics,
         candidates=[
             ReactionPost(result_id=r.result_id, channel=r.channel.value, title=r.title, reaction_evidence=evidence[r.result_id],
-                         verification_reason=checks[r.result_id].reason, url=r.original_url or r.url, snippet=r.snippet[:SNIPPET_CHARS])
+                         verification_reason=checks[r.result_id].reason, url=r.original_url or r.url, snippet=r.snippet[:SNIPPET_CHARS],
+                         relevance_reason=verdicts[r.result_id].relevance_reason)
             for r in quoted if reasons[r.result_id] == "ok"
         ],
     )
@@ -407,23 +495,26 @@ async def analyze_reactions(
     issue: IssueInput,
     found: OpinionCandidates,
     approved_ids: set[str] | None = None,
+    approved_topic_ids: set[str] | None = None,
 ) -> OpinionResearchResult:
-    """Stage 2: themes from the approved reactions. approved_ids is the human review; None approves all candidates."""
+    """Stage 2: themes from the approved reactions, plus the kept discussion topics. None approves everything."""
     reacting = [r for r in found.candidates if approved_ids is None or r.result_id in approved_ids]
+    topics = [t for t in found.topics if approved_topic_ids is None or t.topic_id in approved_topic_ids]
     excluded = Counter(found.filtered_out)
     excluded["reviewer_rejected"] = len(found.candidates) - len(reacting)
     base = dict(
         issue=issue.issue, queries=found.queries, corpus_size=found.corpus_size, relevant_count=found.relevant_count,
         reaction_count=len(reacting), channel_counts=dict(Counter(r.channel for r in reacting)), reactions=reacting,
         filtered_out={k: v for k, v in excluded.items() if v},
-        # keywords come from approved reaction posts only, not from policy-relay text
-        keywords=top_keywords(reacting, [*issue.issue.split(), issue.region, *found.exclude_keywords]),
+        # keywords describe what is discussed, so they come from every relevant post, not only from reactions
+        keywords=top_keywords(found.discussion_posts or reacting, [*issue.issue.split(), issue.region, *found.exclude_keywords]),
+        key_topics=[t.topic for t in topics], discussion_topics=topics, discussion_size=len(found.discussion_posts),
     )
     if len(reacting) < MIN_OPINION_POSTS:
         # Say so instead of inventing reactions from too few posts.
         relay = excluded["policy_information"] + excluded["news_repost"]
         return OpinionResearchResult(
-            overall_sentiment=OverallSentiment.UNKNOWN, reaction_themes=[], key_topics=[],
+            overall_sentiment=OverallSentiment.UNKNOWN, reaction_themes=[],
             channel_insights=channel_insights(reacting, []),
             analysis_summary=f"{INSUFFICIENT}. {INSUFFICIENT_DETAIL}" if relay else INSUFFICIENT, **base,
         )
@@ -447,7 +538,6 @@ async def analyze_reactions(
     overall = summarize_tone(themes)
     return OpinionResearchResult(
         reaction_themes=themes,
-        key_topics=_clean_list(a.key_topics, [issue.issue]),
         analysis_summary=(a.analysis_summary if overall is not OverallSentiment.UNKNOWN else f"{UNCLEAR}. {a.analysis_summary}") if themes else UNCLEAR,
         overall_sentiment=overall,
         channel_insights=channel_insights(reacting, themes),
@@ -466,12 +556,3 @@ async def analyze_opinion(
     """Both stages back to back, with no human review (every candidate approved)."""
     found = await find_reaction_candidates(qwen, issue, queries, corpus, filtered_out, exclude_keywords)
     return await analyze_reactions(qwen, issue, found)
-
-
-def review_rows(found: OpinionCandidates) -> list[dict]:
-    """What a reviewer reads: one row per candidate with `approved` pre-set to Qwen's verdict (true)."""
-    return [{"approved": True, **c.model_dump()} for c in found.candidates]
-
-
-def approved_from_review(rows: list[dict]) -> set[str]:
-    return {r["result_id"] for r in rows if r.get("approved")}

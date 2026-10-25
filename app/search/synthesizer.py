@@ -12,6 +12,7 @@ MAX_DOCUMENTS = 8
 EXCERPT_CHARS = 3000
 NUM_CTX = 24576  # 8 x 3000 chars of Korean plus the prompt; Ollama's default window would truncate silently
 MAX_SOURCES_PER_FACT = 2
+_RESULT_ID = re.compile(r"\s*[:,]?\s*\b[0-9a-f]{12}\b(?:\s*,\s*\b[0-9a-f]{12}\b)*")
 _OFFICIAL = {SourceType.GOVERNMENT, SourceType.LEGISLATURE, SourceType.PUBLIC_AGENCY, SourceType.COMPANY}
 
 SYNTH_PROMPT = """
@@ -83,7 +84,12 @@ async def synthesize_facts(
 
     facts = [f.model_copy(update={"source_result_ids": sources(f.source_result_ids)}) for f in out.key_facts]
     timeline = [t.model_copy(update={"source_result_ids": sources(t.source_result_ids)}) for t in out.timeline]
+    def clean(text: str) -> str:
+        return _RESULT_ID.sub("", text).strip()  # Qwen sometimes pastes document ids into prose
+
     return out.model_copy(update={
+        "uncertainties": [c for c in (clean(u) for u in out.uncertainties) if c],
+        "missing_information": [c for c in (clean(m) for m in out.missing_information) if c],
         "key_facts": [f for f in facts if f.source_result_ids],
         # ISO-style dates sort chronologically; free-text dates keep Qwen's order after them.
         "timeline": sorted((t for t in timeline if t.source_result_ids), key=lambda t: (0, t.date) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", t.date or "") else (1, "")),
