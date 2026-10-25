@@ -1,6 +1,7 @@
 """Fact Research Synthesizer: fetched documents -> key facts, timeline, status, gaps."""
 
 import json
+import re
 
 from app.research.query_expansion import QwenQueryExpansionService
 from app.schemas.research import IssueInput, ResearchQuestion
@@ -25,7 +26,8 @@ SYNTH_PROMPT = """
 4. 각 key_fact와 timeline 항목의 source_result_ids에는 그 내용을 가장 직접 담은 문서
    최대 2개만 넣는다. 공식 출처(GOVERNMENT 등)가 있으면 우선한다. 모든 문서를 나열하지 않는다.
 5. current_status에는 발표·MOU·계획·착공·완료·통과·공포 중 어느 단계인지 구분해 쓴다.
-   계획이나 협약을 완료·확정된 것처럼 쓰지 않는다.
+   계획이나 협약을 완료·확정된 것처럼 쓰지 않는다. 법안은 "국회 본회의 통과"처럼 단계명을
+   그대로 쓰고, 공포·시행이 문서에 없으면 그 단계는 미확인이라고 적는다. "완료"라고만 쓰지 않는다.
 6. timeline은 날짜가 문서에 분명히 있는 사건만 쓴다. date는 문서 표현 그대로 쓰고,
    event에 같은 날짜를 반복하지 않는다. 문서가 쓴 시제(계획이면 계획)를 따른다.
 7. missing_information에는 보고서에 꼭 필요한데 문서에 없는 핵심 정보만 쓴다.
@@ -83,5 +85,6 @@ async def synthesize_facts(
     timeline = [t.model_copy(update={"source_result_ids": sources(t.source_result_ids)}) for t in out.timeline]
     return out.model_copy(update={
         "key_facts": [f for f in facts if f.source_result_ids],
-        "timeline": [t for t in timeline if t.source_result_ids],
+        # ISO-style dates sort chronologically; free-text dates keep Qwen's order after them.
+        "timeline": sorted((t for t in timeline if t.source_result_ids), key=lambda t: (0, t.date) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", t.date or "") else (1, "")),
     })

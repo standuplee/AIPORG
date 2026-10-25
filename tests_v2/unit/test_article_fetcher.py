@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.schemas.research import IssueInput, ResearchQuestion
 from app.search import fetcher
-from app.search.documents import FactResearchResult, FetchedDocument, FetchStatus, KeyFact, PublishedAtSource as P
+from app.search.documents import FactResearchResult, FetchedDocument, FetchStatus, KeyFact, TimelineItem, PublishedAtSource as P
 from app.search.html_meta import extract_metadata, parse_date
 from app.search.schemas import SearchChannel, SearchProvider, SearchResult, SourceType
 
@@ -95,12 +95,13 @@ def test_synthesizer_prefers_official_sources_and_drops_unsourced_facts():
             return FactResearchResult(
                 summary="s", organizations=["충남도"], persons=[], locations=[], current_status="MOU 체결",
                 key_facts=[KeyFact(fact="ok", source_result_ids=["n2", "ghost", "g1", "n1"]), KeyFact(fact="no source", source_result_ids=["ghost"])],
-                timeline=[], uncertainties=[], missing_information=[],
+                timeline=[TimelineItem(date="2026-09-02", event="b", source_result_ids=["g1"]), TimelineItem(date="2028년 6월", event="c", source_result_ids=["n1"]), TimelineItem(date="2026-09-01", event="a", source_result_ids=["g1"])], uncertainties=[], missing_information=[],
             )
 
     issue = IssueInput(region="충청남도", start_date=datetime(2026, 9, 1).date(), end_date=datetime(2026, 9, 30).date(), issue="x")
     q = ResearchQuestion(id="RQ01", type="FACT", question="?")
     out = asyncio.run(synthesize_facts(FakeQwen(), issue, [q], docs))
     assert [(f.fact, f.source_result_ids) for f in out.key_facts] == [("ok", ["g1", "n1"])]  # official first, capped at 2, unseen ids dropped
+    assert [t.event for t in out.timeline] == ["a", "b", "c"]  # ISO dates ascending, free-text dates after
     assert seen["num_ctx"] == NUM_CTX and [d["result_id"] for d in seen["user"]["documents"]] == ["g1", "n1", "n2"]
     assert len(seen["user"]["documents"][0]["excerpt"]) <= 3000
