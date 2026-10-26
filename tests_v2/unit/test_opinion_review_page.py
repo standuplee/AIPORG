@@ -83,7 +83,7 @@ def test_analysis_uses_only_approved_ids_and_writes_a_reviewed_report(session_fi
     next(b for b in at.button if b.label.startswith("승인한 반응으로")).click().run()
     assert not at.exception
     md = session_file.parent / "report_reviewed_heat.md"
-    assert md.exists() and "TF 가동" in md.read_text() and "분석 가능한 온라인 반응이 부족함" in md.read_text()
+    assert md.exists() and "TF 가동" in md.read_text() and "뚜렷한 여론 방향 판단 어려움" in md.read_text() and "지속적으로 점검" in md.read_text()
     saved = json.loads((session_file.parent / "reviewed_opinion_heat.json").read_text())
     assert saved["reaction_count"] == 1 and saved["filtered_out"]["reviewer_rejected"] == 3
 

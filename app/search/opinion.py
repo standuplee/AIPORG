@@ -65,6 +65,8 @@ class ChannelInsight(SchemaBase):
     sample_size: int  # posts with a reaction in this channel
     main_reactions: list[str]  # theme names backed by this channel's posts
     sentiment: OverallSentiment
+    discussion_size: int = 0  # relevant posts of any kind seen in this channel
+    discussion_topics: list[str] = Field(default_factory=list)  # kept topics with >= MIN_CHANNEL_POSTS sources here
 
 
 class OpinionAnalysis(SchemaBase):
@@ -395,11 +397,15 @@ def summarize_tone(themes: list[ReactionTheme]) -> OverallSentiment:
     return OverallSentiment.SPLIT
 
 
-def channel_insights(posts: list[ReactionPost], themes: list[ReactionTheme]) -> list[ChannelInsight]:
-    """Built in code from theme sources, so a channel claim always rests on counted posts."""
+def channel_insights(
+    posts: list[ReactionPost], themes: list[ReactionTheme],
+    discussion: list[DiscussionPost] = (), topics: list[DiscussionTopic] = (),
+) -> list[ChannelInsight]:
+    """Built in code from counted posts. Topics describe what a channel talks about; sentiment rests on reactions only."""
     out = []
-    for channel in dict.fromkeys(r.channel for r in posts):
+    for channel in dict.fromkeys([r.channel for r in posts] + [d.channel for d in discussion]):
         ids = {r.result_id for r in posts if r.channel == channel}
+        talk = {d.result_id for d in discussion if d.channel == channel}
         own = [t.model_copy(update={"source_result_ids": [i for i in t.source_result_ids if i in ids]}) for t in themes]
         own = [t for t in own if t.source_result_ids]
         enough = len(ids) >= MIN_CHANNEL_POSTS
@@ -407,6 +413,8 @@ def channel_insights(posts: list[ReactionPost], themes: list[ReactionTheme]) -> 
             channel=channel, sample_size=len(ids),
             main_reactions=[t.theme for t in own] if enough and own else ["표본 부족으로 채널 경향 판단 어려움"],
             sentiment=summarize_tone(own) if enough else OverallSentiment.UNKNOWN,
+            discussion_size=len(talk),
+            discussion_topics=[t.topic for t in topics if len(talk & set(t.source_result_ids)) >= MIN_CHANNEL_POSTS],
         ))
     return out
 
@@ -515,7 +523,7 @@ async def analyze_reactions(
         relay = excluded["policy_information"] + excluded["news_repost"]
         return OpinionResearchResult(
             overall_sentiment=OverallSentiment.UNKNOWN, reaction_themes=[],
-            channel_insights=channel_insights(reacting, []),
+            channel_insights=channel_insights(reacting, [], found.discussion_posts, topics),
             analysis_summary=f"{INSUFFICIENT}. {INSUFFICIENT_DETAIL}" if relay else INSUFFICIENT, **base,
         )
     sample = _sample(reacting)
@@ -540,7 +548,7 @@ async def analyze_reactions(
         reaction_themes=themes,
         analysis_summary=(a.analysis_summary if overall is not OverallSentiment.UNKNOWN else f"{UNCLEAR}. {a.analysis_summary}") if themes else UNCLEAR,
         overall_sentiment=overall,
-        channel_insights=channel_insights(reacting, themes),
+        channel_insights=channel_insights(reacting, themes, found.discussion_posts, topics),
         **base,
     )
 

@@ -11,7 +11,7 @@ from app.research.query_expansion import QwenQueryExpansionService
 from app.schemas.common import SchemaBase
 from app.schemas.research import IssueInput
 from app.search.documents import FactResearchResult
-from app.search.opinion import INSUFFICIENT, DiscussionTopic, OpinionResearchResult, ReactionTheme
+from app.search.opinion import INSUFFICIENT, MIN_OPINION_POSTS, UNCLEAR, DiscussionTopic, OpinionResearchResult, OverallSentiment, ReactionTheme
 
 IMPLICATION_PROMPT = """
 당신은 지방정부 월간 이슈 보고서의 시사점 작성자다.
@@ -68,6 +68,7 @@ class IssueReport(SchemaBase):
     discussion_topics: list[DiscussionTopic]
     topic_sources: list[SourceRef]
     discussion_size: int
+    confirmed_reactions: list[str]  # verbatim evidence of each approved reaction, shown even when too few for themes
     reaction_themes: list[ReactionTheme]
     reaction_sources: list[SourceRef]
     sample_size: int
@@ -87,6 +88,13 @@ def _grounded(text: str, source_text: str) -> bool:
     return all(n in source_text for n in _NUMBER.findall(text))
 
 
+def _channel_note(c) -> str:
+    """Topics come from the channel's posts; the reaction part appears only with enough reactions."""
+    topics = ", ".join(c.discussion_topics) or "뚜렷한 반복 논점 없음"
+    note = f"{c.channel} (관련 글 {c.discussion_size}건): {topics}"
+    return note + (f" / 반응 {c.sample_size}건, {c.sentiment.value}: " + ", ".join(c.main_reactions) if c.sample_size >= MIN_OPINION_POSTS and c.sentiment is not OverallSentiment.UNKNOWN else "")
+
+
 async def build_report(
     qwen: QwenQueryExpansionService,
     issue: IssueInput,
@@ -96,6 +104,7 @@ async def build_report(
     opinion_index: dict[str, tuple[str, str]],
 ) -> IssueReport:
     no_opinion = opinion.reaction_count == 0
+    thin = opinion.reaction_count < MIN_OPINION_POSTS  # 1-2 reactions: show them, but no themes, tone or reaction-based implications
     upstream = json.dumps(
         {"facts": fact.model_dump(mode="json"), "opinion": opinion.model_dump(mode="json")}, ensure_ascii=False
     )
@@ -104,7 +113,7 @@ async def build_report(
         "uncertainties": fact.uncertainties,
         "discussion_topics": [{"topic": t.topic, "summary": t.summary} for t in opinion.discussion_topics],
     }
-    if no_opinion:
+    if thin:
         draft: ImplicationDraft = await qwen.chat(FACT_ONLY_PROMPT, json.dumps(facts_only, ensure_ascii=False), ImplicationDraft)
     else:
         draft = await qwen.chat(
@@ -122,7 +131,7 @@ async def build_report(
         )
     implications = [
         x for x in draft.implications
-        if x.strip() and _grounded(x, upstream) and not (no_opinion and any(w in x for w in _OPINION_WORDS))
+        if x.strip() and _grounded(x, upstream) and not (thin and any(w in x for w in _OPINION_WORDS))
     ][:3]
     used_ids = list(dict.fromkeys(i for f in [*fact.key_facts, *fact.timeline] for i in f.source_result_ids))
     return IssueReport(
@@ -131,20 +140,21 @@ async def build_report(
         core_content=[f.fact for f in fact.key_facts],
         current_status=fact.current_status,
         timeline=[f"{t.date or '일자 미상'}: {t.event}" for t in fact.timeline],
-        overall_tone=INSUFFICIENT if no_opinion else opinion.overall_sentiment.value,
-        reaction_summary=opinion.analysis_summary.removeprefix(INSUFFICIENT).lstrip(". ") if no_opinion else opinion.analysis_summary,
+        overall_tone=INSUFFICIENT if no_opinion else UNCLEAR if thin else opinion.overall_sentiment.value,
+        reaction_summary=opinion.analysis_summary.removeprefix(INSUFFICIENT).lstrip(". ") if thin else opinion.analysis_summary,
         discussion_topics=opinion.discussion_topics,
         topic_sources=[SourceRef(result_id=i, title=opinion_index[i][0], url=opinion_index[i][1])
                        for i in dict.fromkeys(i for t in opinion.discussion_topics for i in t.source_result_ids) if i in opinion_index],
         discussion_size=opinion.discussion_size,
+        confirmed_reactions=[f"[{x.channel}] \"{x.reaction_evidence}\" — {x.title}" for x in opinion.reactions],
         reaction_themes=opinion.reaction_themes,
         reaction_sources=[SourceRef(result_id=i, title=opinion_index[i][0], url=opinion_index[i][1])
                           for i in dict.fromkeys(i for t in opinion.reaction_themes for i in t.source_result_ids) if i in opinion_index],
         sample_size=opinion.reaction_count,
         keywords=[k.keyword for k in opinion.keywords[:10]],
-        channel_notes=["유효 반응 표본 부족"] if no_opinion else [f"{c.channel} (유효 반응 {c.sample_size}건, {c.sentiment.value}): " + " / ".join(c.main_reactions) for c in opinion.channel_insights],
+        channel_notes=[_channel_note(c) for c in opinion.channel_insights],
         implications=implications,
-        implications_note=NO_OPINION_NOTE if no_opinion else None,
+        implications_note=NO_OPINION_NOTE if thin else None,
         uncertainties=fact.uncertainties,
         sources=[SourceRef(result_id=i, title=source_index[i][0], url=source_index[i][1]) for i in used_ids if i in source_index],
         limitations=[opinion.limitations, "사실 정리는 수집된 문서 중 최대 8건의 앞부분을 기준으로 했다."],
@@ -171,7 +181,7 @@ def render_markdown(r: IssueReport) -> str:
         for t in r.discussion_topics
     ]
     out += ["", "## 주요 논점", f"수집된 관련 글 {r.discussion_size}건에서 반복해서 다뤄진 논점이며, 여론의 방향(기대·우려)을 뜻하지 않는다.", bullets(topics)]
-    out += ["", "## 여론 표정", f"**{r.overall_tone}** (유효 반응 {r.sample_size}건)" + (f" — {r.reaction_summary}" if r.reaction_summary else ""), "", "주요 반응", bullets(themes),
+    out += ["", "## 여론 표정", f"**{r.overall_tone}** (유효 반응 {r.sample_size}건)" + (f" — {r.reaction_summary}" if r.reaction_summary else ""), "", "주요 반응", bullets(themes) if themes else bullets(r.confirmed_reactions),
             "", "## 연관 키워드", ", ".join(r.keywords) or "(없음)", "", "## 채널별 특징", bullets(r.channel_notes),
             "", "## 시사점"]
     if r.implications_note:

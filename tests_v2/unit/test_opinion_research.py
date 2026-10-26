@@ -272,3 +272,13 @@ def test_a_topic_nearly_every_post_mentions_is_dropped_as_the_issue_itself():
         _topic("특별법 통과", [p["result_id"] for p in ps]), _topic("통합본사", [p["result_id"] for p in ps])]))
     found = asyncio.run(find_reaction_candidates(qwen, ISSUE, ["q"], posts, {}, []))
     assert [t.topic for t in found.topics] == ["통합본사"] and len(found.topics[0].source_result_ids) == 3
+
+
+def test_channel_insights_report_discussion_topics_without_reaction_sample():
+    from app.search.opinion import DiscussionPost, DiscussionTopic, OverallSentiment, channel_insights
+
+    posts = [DiscussionPost(result_id=f"p{i}", channel="BLOG" if i < 4 else "CAFE", title="t", url="u", snippet="s", content_type="POLICY_INFORMATION") for i in range(5)]
+    topic = DiscussionTopic(topic_id="T1", topic="고용 전환", summary="x", source_result_ids=["p0", "p1", "p2", "p4"])
+    by = {c.channel: c for c in channel_insights([], [], posts, [topic])}
+    assert by["BLOG"].discussion_topics == ["고용 전환"] and by["BLOG"].discussion_size == 4
+    assert by["CAFE"].discussion_topics == [] and by["CAFE"].sentiment is OverallSentiment.UNKNOWN  # 1 source < MIN_CHANNEL_POSTS

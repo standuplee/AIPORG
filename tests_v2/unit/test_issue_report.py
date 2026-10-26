@@ -67,7 +67,7 @@ def test_zero_reactions_allows_fact_only_implications_without_opinion_language()
     r = asyncio.run(build_report(FactOnly(), ISSUE, FACT, empty, {"a": ("기사 A", "https://a")}, {}))
     assert "분석 가능한 온라인 반응이 없다" in seen["system"] or "온라인 반응이 없다" in seen["system"]
     assert r.implications == ["단계적 투자계획이므로 진행 상황을 지속적으로 확인할 필요가 있다."]
-    assert r.overall_tone == "분석 가능한 온라인 반응이 부족함" and r.channel_notes == ["유효 반응 표본 부족"] and r.reaction_summary == INSUFFICIENT_DETAIL
+    assert r.overall_tone == "분석 가능한 온라인 반응이 부족함" and r.channel_notes == [] and r.reaction_summary == INSUFFICIENT_DETAIL
     md = render_markdown(r)
     assert "여론 기반 시사점은 도출하지 않았으며" in md and "진행 상황을 지속적으로 확인" in md and "(유효 반응 0건)" in md
     assert "고용 전환" in md.split("## 주요 논점")[1].split("## 여론 표정")[0]   # the discussion section is filled although no reaction is
