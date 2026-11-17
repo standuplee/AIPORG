@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.research.query_expansion import QwenQueryExpansionService  # noqa: E402
 from app.research.report import build_report, render_markdown  # noqa: E402
-from app.research.review import ReviewStatus, load_session, set_status, set_topic  # noqa: E402
+from app.research.review import ReviewStatus, load_session, set_fact, set_status, set_topic  # noqa: E402
 from app.search.opinion import analyze_reactions  # noqa: E402
 
 LABEL = {ReviewStatus.PENDING: "미검토", ReviewStatus.APPROVED: "승인", ReviewStatus.REJECTED: "제외"}
@@ -31,6 +31,32 @@ def _decide(path: Path, result_id: str, status: ReviewStatus) -> None:
 
 def _toggle_topic(path: Path, topic_id: str) -> None:
     set_topic(path, topic_id, st.session_state[f"topic_{topic_id}"])
+
+
+def _toggle_fact(path: Path, key: str) -> None:
+    set_fact(path, key, st.session_state[f"fact_{key}"])
+
+
+def render_fact(path: Path, session) -> None:
+    sources = session.fact_sources
+
+    def cite(ids: list[str]) -> str:
+        return " ".join(f"[{sources[i][0]}]({sources[i][1]})" for i in ids if i in sources)
+
+    st.write(session.fact.summary)
+    if session.fact.current_status:
+        st.caption(f"현재 상태: {session.fact.current_status}")
+    st.caption("요약·현재 상태는 그대로 쓰이며, 아래 사실과 일정은 출처를 확인한 뒤 틀린 항목의 체크를 해제하세요.")
+    for prefix, items, text in (("kf", session.fact.key_facts, lambda f: f.fact),
+                                ("tl", session.fact.timeline, lambda t: f"{t.date or '일자 미상'}: {t.event}")):
+        for i, item in enumerate(items):
+            key = f"{prefix}{i}"
+            with st.container(border=True):
+                st.checkbox(text(item), value=session.fact_selected.get(key, True), key=f"fact_{key}",
+                            on_change=_toggle_fact, args=(path, key))
+                st.caption(cite(item.source_result_ids) or "출처 없음")
+    for u in session.fact.uncertainties:
+        st.caption(f"확인 필요: {u}")
 
 
 def render_topic(path: Path, topic, selected: bool, posts: dict) -> None:
@@ -72,7 +98,7 @@ def run_analysis(path: Path, session) -> str:
     opinion_index = {p.result_id: (p.title, p.url) for p in session.candidates.discussion_posts}
     opinion_index.update({c.result_id: (c.title, c.url) for c in session.candidates.candidates})
     fact_index = {i: (v[0], v[1]) for i, v in session.fact_sources.items()}
-    report = asyncio.run(build_report(qwen, session.issue, session.fact, result, fact_index, opinion_index))
+    report = asyncio.run(build_report(qwen, session.issue, session.reviewed_fact(), result, fact_index, opinion_index))
     name = path.stem.removeprefix("session_")
     (path.parent / f"reviewed_opinion_{name}.json").write_text(result.model_dump_json(indent=2), encoding="utf-8")
     (path.parent / f"report_reviewed_{name}.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
@@ -95,6 +121,8 @@ def main() -> None:
     reviewed = total - counts["PENDING"]
     st.subheader(session.issue.issue)
     st.caption(f"{session.issue.region} · {session.issue.start_date} ~ {session.issue.end_date}")
+    st.markdown("### 0. 핵심 사실")
+    render_fact(path, session)
     topics = session.candidates.topics
     posts = {p.result_id: p for p in session.candidates.discussion_posts}
     st.markdown("### 1. 주요 논점 후보")

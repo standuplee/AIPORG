@@ -116,3 +116,25 @@ def test_analysis_report_contains_only_the_kept_topics(session_file, monkeypatch
     next(b for b in at.button if b.label.startswith("승인한 반응으로")).click().run()
     md = (session_file.parent / "report_reviewed_heat.md").read_text()
     assert "무더위쉼터 확대" in md and "AI·드론" not in md and "분석 가능한 온라인 반응이 부족함" in md
+
+
+def test_unticked_facts_are_dropped_from_the_reviewed_fact_and_old_sessions_keep_everything(session_file):
+    from app.research.review import set_fact
+    s = load_session(session_file)
+    assert s.fact_selected == {} and s.reviewed_fact().key_facts == s.fact.key_facts   # nothing unticked yet
+    set_fact(session_file, "kf0", False)
+    s = load_session(session_file)
+    assert s.reviewed_fact().key_facts == [] and s.fact.key_facts[0].fact == "TF 가동"   # original is untouched
+    set_fact(session_file, "kf0", True)
+    assert len(load_session(session_file).reviewed_fact().key_facts) == 1
+    for bad in ("kf9", "xx0", "kf"):
+        with pytest.raises(KeyError):
+            set_fact(session_file, bad, False)
+
+
+def test_page_lists_facts_with_sources_and_untick_persists(session_file):
+    at = AppTest.from_file(PAGE, default_timeout=30).run()
+    assert not at.exception
+    assert any("충남도 보도자료" in c.value for c in at.caption)
+    at.checkbox(key="fact_kf0").uncheck().run()
+    assert load_session(session_file).fact_selected == {"kf0": False}

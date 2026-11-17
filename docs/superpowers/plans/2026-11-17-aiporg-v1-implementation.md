@@ -177,7 +177,7 @@ Online Corpus + Discussion Topics → Keyword Candidates → 실제 문서 출�
 
 AI가 정리한 결과를 담당자가 승인·제외하는 방식이다. 상태: `PENDING → APPROVED | REJECTED`. 반응 후보는 검토 완료 전까지 보고서의 확정 반응으로 쓰지 않는다.
 
-- **Fact Review (V1 최소 기능):** 핵심 사실·수치, 일정·정책 현황, 원문 출처의 승인/제외 (화면 미구현)
+- **Fact Review (V1 최소 기능):** 핵심 사실·수치, 일정·정책 현황, 원문 출처의 승인/제외 (핵심 사실·일정 해제 구현됨)
 - **Discussion Review:** 논점 제목·요약·근거 문서, 포함/제외
 - **Reaction Review:** 제목, 채널·URL, 반응 근거, AI 검증 사유, 사용/제외
 
@@ -239,7 +239,7 @@ Issue Input, Qwen Query Expansion, Naver/Daum 검색, 정규화·중복 제거, 
 - [ ] 다수 이슈 합성 설계(모델명·schema 승인)
 - [ ] 이슈별 근거 추적 유지, 월간 종합 문장 생성
 - [ ] 2.0 HWPX 구성과 연결
-- [ ] Fact Review 최소 화면(핵심 사실·수치·일정·출처 승인/제외) — Phase 2 종료 후 Phase 3과 병행 가능
+- [x] Fact Review 최소 화면(핵심 사실·일정을 출처와 함께 해제) — 요약·현재 상태 편집은 미지원
 - (제외) 정보 공백 기반 반복 조사 루프는 V1 범위 밖
 
 ### Phase 5. End-to-End Regression

@@ -25,9 +25,18 @@ class ReviewSession(SchemaBase):
     fact_sources: dict[str, list[str]]  # result_id -> [title, url] for the fact section's citations
     statuses: dict[str, ReviewStatus]  # one decision per reaction candidate
     topic_selected: dict[str, bool] = Field(default_factory=dict)  # discussion topics start selected; unticking drops one
+    fact_selected: dict[str, bool] = Field(default_factory=dict)  # "kf0"/"tl0" -> keep; missing key means kept (older sessions)
 
     def selected_topic_ids(self) -> set[str]:
         return {i for i, keep in self.topic_selected.items() if keep}
+
+    def reviewed_fact(self) -> FactResearchResult:
+        """The fact result minus items a person unticked; summary/status stay as extracted."""
+        keep = lambda key: self.fact_selected.get(key, True)  # noqa: E731
+        return self.fact.model_copy(update={
+            "key_facts": [f for i, f in enumerate(self.fact.key_facts) if keep(f"kf{i}")],
+            "timeline": [t for i, t in enumerate(self.fact.timeline) if keep(f"tl{i}")],
+        })
 
     def counts(self) -> dict[str, int]:
         values = list(self.statuses.values())
@@ -70,5 +79,16 @@ def set_topic(path: Path, topic_id: str, selected: bool) -> ReviewSession:
     if topic_id not in session.topic_selected:
         raise KeyError(topic_id)
     session.topic_selected[topic_id] = selected
+    save_session(path, session)
+    return session
+
+
+def set_fact(path: Path, key: str, selected: bool) -> ReviewSession:
+    session = load_session(path)
+    kind, idx = key[:2], key[2:]
+    items = {"kf": session.fact.key_facts, "tl": session.fact.timeline}.get(kind)
+    if items is None or not idx.isdigit() or int(idx) >= len(items):
+        raise KeyError(key)
+    session.fact_selected[key] = selected
     save_session(path, session)
     return session
