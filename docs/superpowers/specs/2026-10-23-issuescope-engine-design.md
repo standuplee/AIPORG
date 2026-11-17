@@ -1,3 +1,5 @@
+> **폐기됨(2026-11-17):** [V1 구현 계획서](../plans/2026-11-17-aiporg-v1-implementation.md)로 대체되었다. 구현 근거로 쓰지 않는다.
+
 # IssueScope Research & Analysis Engine Design
 
 ## Goal

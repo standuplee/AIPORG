@@ -29,7 +29,8 @@ PRD는 사용자 지정 이슈별 반복 조사, Fact와 Evidence의 추적성, 
 - 저장소의 사용자 지침을 계속 적용한다: 임의 schema 금지, 기존 Pydantic 모델 이름 유지, Repository 밖 DB write 금지, Collector의 LLM 호출 및 Analyzer의 웹 요청 금지, Writer의 신규 Fact 생성 금지, Evidence 없는 수치 금지. 각 모듈 변경에는 단위 테스트를 작성하고 통합 테스트 실패 시 다음 기능으로 넘어가지 않는다. PRD의 제안은 이 지침을 무효화하지 않는다.
 - 기존 2.0은 Streamlit, SQLite/SQLAlchemy, Repository, Collector, Evidence/Fact, Analytics, Narrative 및 Report 기반을 갖고 있다. PRD §63·§75는 FastAPI/PostgreSQL을 제안하지만, PRD §77은 먼저 기존 구조와 관례를 조사하도록 한다. 이전 [설계 초안](docs/superpowers/specs/2026-10-23-issuescope-engine-design.md)은 FastAPI/PostgreSQL 도입을 배제하고 기존 UI/DB 재사용을 제안해 PRD와 충돌한다. 이 초안과 [구현 계획](docs/superpowers/plans/2026-10-23-issuescope-engine.md)은 구현 승인이나 최신 결정이 아니며, 구현 전 PRD 및 사용자 지침 기준으로 재검토·수정해야 한다.
 - 기존 2.0의 `Issue`는 근거 기반 분석 그룹이다. 사용자 입력 Research Issue와 같은 개념이라고 간주하지 않는다. PRD 구현 시 기존 모델명과 저장/워크플로 경계를 확인하고, 구체 schema 변경은 사용자 지침을 만족하는 설계가 확정된 뒤에만 진행한다.
-- 다음 행동: 생성된 검색어를 검색 provider에 전달하고, 수집 결과를 근거 기반 Fact pipeline에 연결한다. UI 연결과 반복 조사 루프는 아직 구현하지 않았다.
+- 결정(2026-11-17, 사용자) — 기준 문서는 [V1 구현 계획서](docs/superpowers/plans/2026-11-17-aiporg-v1-implementation.md): V1은 SQLite+Stage Cache, Postgres/pgvector·워크플로 엔진은 향후 확장(시점은 안정화 후 확정). LLM은 로컬 Qwen 기본 + OpenAI·Gemini 활용 유지. 2.0 자산(Streamlit·Narrative 승인·HWPX) 유지. 다수 이슈 월간 종합은 V1 포함(Phase 4). 추가 확정: 반복 조사 루프 V1 제외, Fact Review 최소 기능 V1 포함, 워크플로 엔진 보류, Postgres는 V1 이후. AGENTS.md 1~9 유효, 새 schema는 설계 승인 후. 현재 순서: 세 이슈 검토 화면으로 Phase 2 종료 → Phase 3(키워드·정량).
+- (구) 다음 행동: 생성된 검색어를 검색 provider에 전달하고, 수집 결과를 근거 기반 Fact pipeline에 연결한다. UI 연결과 반복 조사 루프는 아직 구현하지 않았다.
 - PRD 검토 당시 이력: `PRD.md`를 새 브랜치에 복사하고 내용 일치 및 문서 diff를 확인했다. 당시에는 코드·schema·테스트 변경이 없었고 기능 구현도 시작하지 않았다.
 
 ## 1.0 정리
