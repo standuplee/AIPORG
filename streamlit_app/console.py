@@ -50,6 +50,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 import analytics_ui
+import sentiment_review
 
 from app.cleaning.service import CleaningService
 from app.collectors.community import CommunityCollector, load_policies as load_community_policies
@@ -1398,6 +1399,7 @@ def main() -> None:
             "2. 수집 설정·실행",
             "3. 수집 결과 검토",
             "4. 통계·이슈 검토",
+            "4-2. 감성 분류 검수",
             "5. 서술 편집 (LLM 초안)",
             "6. 시각 자료 편집·승인",
             "7. 보고서 미리보기",
@@ -1414,6 +1416,10 @@ def main() -> None:
         page_progress(factory)
     elif page == "4. 통계·이슈 검토":
         page_analytics(factory)
+    elif page == "4-2. 감성 분류 검수":
+        project_id_str = _require_active_project()
+        if project_id_str is not None:
+            sentiment_review.page_sentiment_review(factory, UUID(project_id_str))
     elif page == "5. 서술 편집 (LLM 초안)":
         page_narrative(factory)
     elif page == "6. 시각 자료 편집·승인":
