@@ -139,3 +139,50 @@ def test_rerun_keeps_other_metadata_and_skips_reviewed_documents():
     assert counts["skipped_reviewed"] == 1 and qwen.titles_seen == ["제목 b"]
     assert docs["제목 a"].metadata["sentiment"] == "negative" and docs["제목 a"].metadata["body_available"] is False
     assert docs["제목 b"].metadata["kind"] == "OPINION" and docs["제목 b"].metadata["sentiment"] == "neutral"
+
+
+class _KeyedQwen:
+    """Label by the first letter of the result id in the title: p positive, n negative, u neutral, x bad evidence."""
+    model = "fake-qwen"
+
+    async def chat(self, system, user, schema, **kw):
+        import json
+        from app.sentiment.document_classifier import SentimentBatch, SentimentItem
+        out = []
+        for d in json.loads(user)["documents"]:
+            kind = d["title"].split()[-1][0]
+            label, evidence = {"p": ("positive", "석탄화력 특별법"), "n": ("negative", "석탄화력 특별법"), "u": ("neutral", ""), "x": ("negative", "원문에 없는 문장")}[kind]
+            out.append(SentimentItem(document_id=d["document_id"], label=label, evidence=evidence, reason="r"))
+        return SentimentBatch(results=out)
+
+
+def test_corpus_to_sentiment_distribution():
+    from datetime import date as _date
+
+    from app.analytics.service import AnalyticsService
+    from app.schemas.common import VersionedRunSchema
+    from uuid import uuid4
+
+    from app.sentiment.document_classifier import classify_project
+
+    factory = _factory()
+    corpora = [_corpus("석탄화력 특별법", _item("p1"), _item("p2"), _item("n1"), _item("d1", published=None)),
+               _corpus("폭염 대응", _item("u1"), _item("x1"), _item("x2", channel="CAFE", source_type="COMMUNITY"))]
+
+    def distribution(session, project_id):
+        docs = SqlAlchemyDocumentRepository(session).list_canonical(project_id)
+        run = VersionedRunSchema(run_id=uuid4(), input_version="docs:v1", output_version="analytics:v1", created_at=AT)
+        snapshot = AnalyticsService().build(project_id, run, docs, analysis_period=AnalysisPeriodSchema(start=_date(2026, 8, 1), end=_date(2026, 8, 31)),
+                                            comparison_period=None)
+        return snapshot.metrics["sentiment_distribution"], snapshot.metrics["unique_documents"]
+
+    with factory.begin() as session:
+        project_id = _project(session)
+        summary = asyncio.run(ingest_corpora(session, project_id, corpora))
+        before, _ = distribution(session, project_id)
+        asyncio.run(classify_project(_KeyedQwen(), session, project_id))
+        after, unique = distribution(session, project_id)
+    assert before["unclassified"] == 6 and before["positive"] == 0          # without classification nothing is counted
+    assert after == {"mixed": 0, "negative": 1, "neutral": 1, "positive": 2, "unclassified": 2}
+    assert sum(after.values()) == unique == summary["__canonical_documents__"]["count"] == 6
+    assert summary["석탄화력 특별법"]["held_undated"] == 1                    # the held post is in no count
