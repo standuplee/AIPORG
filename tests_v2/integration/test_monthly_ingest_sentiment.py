@@ -197,3 +197,18 @@ def test_two_corpora_with_the_same_issue_name_are_rejected_not_silently_merged()
         with pytest.raises(ValueError, match="석탄화력 특별법"):
             asyncio.run(ingest_corpora(session, project_id, [_corpus("석탄화력 특별법", _item("a")), _corpus("석탄화력 특별법", _item("b"))]))
         assert SqlAlchemyDocumentRepository(session).count_canonical(project_id) == 0
+
+
+def test_ingest_corpus_files_reads_saved_corpora_into_the_project(tmp_path):
+    from app.research.corpus import save_corpus
+    from app.workflows.ingest_issue_corpora import ingest_corpus_files
+
+    factory = _factory()
+    with factory.begin() as session:
+        project_id = _project(session)
+    save_corpus(tmp_path / "corpus_a.json", _corpus("석탄화력 특별법", _item("a1"), _item("a2", published=None)))
+    save_corpus(tmp_path / "corpus_b.json", _corpus("폭염 대응", _item("b1")))
+    summary = ingest_corpus_files(factory, project_id, [tmp_path / "corpus_a.json", tmp_path / "corpus_b.json"])
+    assert summary["석탄화력 특별법"]["held_undated"] == 1 and summary["__canonical_documents__"] == {"count": 2}
+    with factory.begin() as session:
+        assert {d.query for d in SqlAlchemyDocumentRepository(session).list_canonical(project_id)} == {"석탄화력 특별법", "폭염 대응"}

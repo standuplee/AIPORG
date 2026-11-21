@@ -1,5 +1,7 @@
 """Put issue corpora through the existing multi-query collection workflow (one 2.0 query per user issue)."""
 
+import asyncio
+from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -19,7 +21,7 @@ from app.repositories.sqlalchemy import (
     SqlAlchemyProjectRepository,
     SqlAlchemyQuerySetRepository,
 )
-from app.research.corpus import IssueCorpus
+from app.research.corpus import IssueCorpus, load_corpus
 from app.schemas.common import ProjectId
 from app.schemas.query import SearchQuery
 from app.workflows.multi_query_collection_to_evidence import CollectionRequest, MultiQueryCollectionToEvidenceWorkflow
@@ -63,3 +65,31 @@ async def ingest_corpora(session: Session, project_id: ProjectId, corpora: list[
         ).run(project_id=project_id, requests=requests)
     summary["__canonical_documents__"] = {"count": SqlAlchemyDocumentRepository(session).count_canonical(project_id)}
     return summary
+
+
+def ingest_corpus_files(factory, project_id: ProjectId, paths: list[Path]) -> dict[str, dict[str, int]]:
+    """Load saved corpus files and ingest them in one transaction (rolled back if anything fails)."""
+    from app.db.session import session_scope
+
+    corpora = [load_corpus(p) for p in paths]
+    with session_scope(factory) as session:
+        return asyncio.run(ingest_corpora(session, project_id, corpora))
+
+
+def main() -> None:
+    import argparse
+    from uuid import UUID
+
+    from app.core.config import get_settings
+    from app.db.session import create_session_factory
+
+    p = argparse.ArgumentParser(description="Ingest saved issue corpora (corpus_*.json) into an existing project (state CREATED).")
+    p.add_argument("--project-id", type=UUID, required=True)
+    p.add_argument("corpus", type=Path, nargs="+")
+    a = p.parse_args()
+    for issue, counts in ingest_corpus_files(create_session_factory(get_settings().database_url), a.project_id, a.corpus).items():
+        print(issue, counts)
+
+
+if __name__ == "__main__":
+    main()
