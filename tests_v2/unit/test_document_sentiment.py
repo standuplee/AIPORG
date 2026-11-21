@@ -75,3 +75,38 @@ def test_snippet_only_documents_are_marked_basis_snippet():
     full, snippet = _doc(), _doc(body_available=False)
     out = _run(FakeQwen({str(full.document_id): ("neutral", ""), str(snippet.document_id): ("neutral", "")}), [full, snippet])
     assert out[full.document_id].basis == "BODY" and out[snippet.document_id].basis == "SNIPPET"
+
+
+class _Repo:
+    def __init__(self):
+        self.saved = []
+
+    def upsert_clean(self, project_id, document):
+        self.saved.append(document)
+
+
+def test_store_merges_metadata_and_keeps_existing_keys():
+    from app.sentiment.document_classifier import SentimentVerdict, store_sentiment
+    doc, repo = _doc(), _Repo()
+    verdict = SentimentVerdict(label=SentimentLabel.POSITIVE, evidence="경제가 살아날 것이다", reason="r", basis="BODY")
+    assert store_sentiment(repo, uuid4(), doc, verdict, model="qwen3:8b") is True
+    meta = repo.saved[0].metadata
+    assert meta["body_available"] is True and meta["sentiment"] == "positive" and meta["sentiment_evidence"] == "경제가 살아날 것이다"
+    assert (meta["sentiment_model"], meta["sentiment_prompt_version"], meta["sentiment_review"], meta["sentiment_basis"]) == ("qwen3:8b", "doc-sentiment-v1", "AI_ONLY", "BODY")
+
+
+def test_unclassified_verdict_writes_no_sentiment_key_but_keeps_the_reason():
+    from app.sentiment.document_classifier import SentimentVerdict, store_sentiment
+    doc, repo = _doc(), _Repo()
+    assert store_sentiment(repo, uuid4(), doc, SentimentVerdict(label=None, reason="근거 구절 확인 실패", basis="SNIPPET"), model="m") is True
+    meta = repo.saved[0].metadata
+    assert "sentiment" not in meta and meta["sentiment_reason"] == "근거 구절 확인 실패"
+
+
+def test_reviewed_documents_are_not_overwritten():
+    from app.sentiment.document_classifier import SentimentVerdict, store_sentiment
+    for state in ("AGREED", "CORRECTED"):
+        doc = _doc().model_copy(update={"metadata": {"sentiment": "negative", "sentiment_review": state}})
+        repo = _Repo()
+        assert store_sentiment(repo, uuid4(), doc, SentimentVerdict(label=SentimentLabel.POSITIVE, evidence="x", reason="r", basis="BODY"), model="m") is False
+        assert repo.saved == []

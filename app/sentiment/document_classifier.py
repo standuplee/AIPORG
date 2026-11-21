@@ -82,3 +82,40 @@ async def classify_documents(qwen, issue: str, docs: list[CleanDocument], batch:
         for d in todo:
             verdicts[d.document_id] = SentimentVerdict(label=None, reason="qwen_failed" if failed else "qwen_no_answer", basis=_basis(d))
     return verdicts
+
+
+REVIEWED = {"AGREED", "CORRECTED"}
+
+
+def store_sentiment(repo, project_id, document: CleanDocument, verdict: SentimentVerdict, *, model: str) -> bool:
+    """upsert_clean overwrites the metadata, so the new keys are merged into what the document already has."""
+    if document.metadata.get("sentiment_review") in REVIEWED:
+        return False
+    meta = {k: v for k, v in document.metadata.items() if k != "sentiment"}
+    if verdict.label is not None:
+        meta["sentiment"] = verdict.label.value
+    meta.update(sentiment_evidence=verdict.evidence, sentiment_reason=verdict.reason, sentiment_basis=verdict.basis,
+                sentiment_model=model, sentiment_prompt_version=PROMPT_VERSION, sentiment_review="AI_ONLY")
+    repo.upsert_clean(project_id, document.model_copy(update={"metadata": meta}))
+    return True
+
+
+async def classify_project(qwen, session, project_id) -> dict[str, int]:
+    """Classify every canonical document not yet reviewed by a person, one issue (document.query) at a time."""
+    from app.repositories.sqlalchemy import SqlAlchemyDocumentRepository
+
+    repo = SqlAlchemyDocumentRepository(session)
+    counts = {label.value: 0 for label in SentimentLabel} | {"unclassified": 0, "skipped_reviewed": 0}
+    by_issue: dict[str, list[CleanDocument]] = {}
+    for doc in repo.list_canonical(project_id):
+        if doc.metadata.get("sentiment_review") in REVIEWED:
+            counts["skipped_reviewed"] += 1
+        else:
+            by_issue.setdefault(doc.query or "", []).append(doc)
+    for issue, docs in by_issue.items():
+        verdicts = await classify_documents(qwen, issue, docs)
+        for doc in docs:
+            verdict = verdicts[doc.document_id]
+            store_sentiment(repo, project_id, doc, verdict, model=qwen.model)
+            counts[verdict.label.value if verdict.label else "unclassified"] += 1
+    return counts

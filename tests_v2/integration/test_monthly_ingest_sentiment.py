@@ -83,3 +83,59 @@ def test_two_issues_make_two_queries():
         asyncio.run(ingest_corpora(session, project_id, [a, b]))
         docs = SqlAlchemyDocumentRepository(session).list_canonical(project_id)
     assert {d.query for d in docs} == {"석탄화력 특별법", "폭염 대응"} and len(docs) == 3
+
+
+class _AnswerQwen:
+    model = "fake-qwen"
+
+    def __init__(self):
+        self.titles_seen = []
+
+    async def chat(self, system, user, schema, **kw):
+        import json
+        from app.sentiment.document_classifier import SentimentBatch, SentimentItem
+        items = []
+        for d in json.loads(user)["documents"]:
+            self.titles_seen.append(d["title"])
+            if d["title"].endswith(" a"):
+                items.append(SentimentItem(document_id=d["document_id"], label="positive", evidence="석탄화력 특별법", reason="r"))
+            elif d["title"].endswith(" c"):
+                items.append(SentimentItem(document_id=d["document_id"], label="negative", evidence="없는 문장", reason="r"))
+            else:
+                items.append(SentimentItem(document_id=d["document_id"], label="neutral", reason="r"))
+        return SentimentBatch(results=items)
+
+
+def test_classify_project_writes_labels_the_analytics_reads():
+    from app.sentiment.document_classifier import classify_project
+    factory = _factory()
+    corpus = _corpus("석탄화력 특별법", _item("a"), _item("b"), _item("c"))
+    with factory.begin() as session:
+        project_id = _project(session)
+        asyncio.run(ingest_corpora(session, project_id, [corpus]))
+        counts = asyncio.run(classify_project(_AnswerQwen(), session, project_id))
+        docs = SqlAlchemyDocumentRepository(session).list_canonical(project_id)
+    assert counts == {"positive": 1, "negative": 0, "neutral": 1, "mixed": 0, "unclassified": 1, "skipped_reviewed": 0}
+    assert sum(counts.values()) == len(docs) == 3
+    by_title = {d.title: d for d in docs}
+    assert by_title["제목 a"].metadata["sentiment"] == "positive" and by_title["제목 b"].metadata["sentiment"] == "neutral"
+    assert "sentiment" not in by_title["제목 c"].metadata and by_title["제목 c"].metadata["sentiment_reason"] == "근거 구절 확인 실패"
+
+
+def test_rerun_keeps_other_metadata_and_skips_reviewed_documents():
+    from app.sentiment.document_classifier import classify_project
+    factory = _factory()
+    corpus = _corpus("석탄화력 특별법", _item("a"), _item("b"))
+    with factory.begin() as session:
+        project_id = _project(session)
+        asyncio.run(ingest_corpora(session, project_id, [corpus]))
+        asyncio.run(classify_project(_AnswerQwen(), session, project_id))
+        repo = SqlAlchemyDocumentRepository(session)
+        a = next(d for d in repo.list_canonical(project_id) if d.title == "제목 a")
+        repo.upsert_clean(project_id, a.model_copy(update={"metadata": {**a.metadata, "sentiment": "negative", "sentiment_review": "CORRECTED"}}))
+        qwen = _AnswerQwen()
+        counts = asyncio.run(classify_project(qwen, session, project_id))
+        docs = {d.title: d for d in repo.list_canonical(project_id)}
+    assert counts["skipped_reviewed"] == 1 and qwen.titles_seen == ["제목 b"]
+    assert docs["제목 a"].metadata["sentiment"] == "negative" and docs["제목 a"].metadata["body_available"] is False
+    assert docs["제목 b"].metadata["kind"] == "OPINION" and docs["제목 b"].metadata["sentiment"] == "neutral"
