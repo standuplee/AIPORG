@@ -186,3 +186,14 @@ def test_corpus_to_sentiment_distribution():
     assert after == {"mixed": 0, "negative": 1, "neutral": 1, "positive": 2, "unclassified": 2}
     assert sum(after.values()) == unique == summary["__canonical_documents__"]["count"] == 6
     assert summary["석탄화력 특별법"]["held_undated"] == 1                    # the held post is in no count
+
+
+def test_two_corpora_with_the_same_issue_name_are_rejected_not_silently_merged():
+    import pytest
+
+    factory = _factory()
+    with factory.begin() as session:
+        project_id = _project(session)
+        with pytest.raises(ValueError, match="석탄화력 특별법"):
+            asyncio.run(ingest_corpora(session, project_id, [_corpus("석탄화력 특별법", _item("a")), _corpus("석탄화력 특별법", _item("b"))]))
+        assert SqlAlchemyDocumentRepository(session).count_canonical(project_id) == 0

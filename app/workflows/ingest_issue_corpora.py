@@ -27,6 +27,10 @@ from app.workflows.multi_query_collection_to_evidence import CollectionRequest, 
 
 async def ingest_corpora(session: Session, project_id: ProjectId, corpora: list[IssueCorpus]) -> dict[str, dict[str, int]]:
     """Per issue: total = ingestible + held_undated + held_unmapped_channel. Held items are never stored."""
+    names = [c.issue for c in corpora]
+    duplicated = sorted({n for n in names if names.count(n) > 1})
+    if duplicated:  # the issue name is the 2.0 query: two corpora under one name would overwrite each other
+        raise ValueError(f"duplicate issue names: {duplicated}")
     collectors = {c.issue: ReplayCollector(c) for c in corpora}
     summary: dict[str, dict[str, int]] = {}
     channels_by_issue = {}
