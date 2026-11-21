@@ -45,8 +45,8 @@ def _host(url: str) -> str:
 class ReplayCollector(BaseCollector):
     def __init__(self, corpus: IssueCorpus) -> None:
         self.corpus = corpus
-        self._usable, self.held = partition(corpus)
-        self._by_url = {item.url: item for item, _ in self._usable}
+        self.usable, self.held = partition(corpus)
+        self._by_url = {item.url: item for item, _ in self.usable}
 
     async def search(self, query: SearchQuery) -> list[SearchResult]:
         if query.query != self.corpus.issue:
@@ -54,7 +54,7 @@ class ReplayCollector(BaseCollector):
         return [
             SearchResult(source=_host(item.url), channel=channel, title=item.title, url=item.url,
                          published_at=item.published_at, query=query.query)
-            for item, channel in self._usable if channel in query.channels
+            for item, channel in self.usable if channel in query.channels
         ]
 
     async def fetch(self, result: SearchResult) -> RawDocument:
