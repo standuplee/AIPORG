@@ -11,7 +11,7 @@ from enum import Enum
 from itertools import zip_longest
 from typing import Literal
 
-from pydantic import Field
+from pydantic import AwareDatetime, Field
 
 from app.analytics.service import _extract_keyword_tokens
 from app.research.query.regions import REGION_ALIASES
@@ -20,6 +20,7 @@ from app.schemas.common import SchemaBase
 from app.schemas.research import IssueDecomposition, IssueInput
 from app.search.documents import FactResearchResult
 from app.search.period import classify_period
+from app.search.quant import QuantitativeResult, build_quantitative
 from app.search.schemas import PeriodStatus, SearchResult
 from app.search.service import SearchService
 from app.search.signals import noise_flags
@@ -97,6 +98,7 @@ class DiscussionPost(SchemaBase):
     url: str
     snippet: str
     content_type: str
+    published_at: AwareDatetime | None = None  # as reported by the search API; blogs/cafes often lack it
 
 
 ContentType = Literal["REACTION", "POLICY_INFORMATION", "NEWS_REPOST", "UNRELATED"]
@@ -159,6 +161,7 @@ class KeywordCount(SchemaBase):
 
 
 class OpinionResearchResult(OpinionAnalysis):
+    quantitative: QuantitativeResult | None = None  # counts of the collected relevant posts; None for results made before it existed
     key_topics: list[str]  # names of the discussion topics the reviewer kept
     discussion_topics: list[DiscussionTopic]
     discussion_size: int  # relevant posts the discussion layer drew on
@@ -571,7 +574,7 @@ async def find_reaction_candidates(
             reasons[r.result_id] = "verification_rejected"
     discussion = [
         DiscussionPost(result_id=r.result_id, channel=r.channel.value, title=r.title, url=r.original_url or r.url,
-                       snippet=r.snippet[:SNIPPET_CHARS], content_type=verdicts[r.result_id].content_type)
+                       snippet=r.snippet[:SNIPPET_CHARS], content_type=verdicts[r.result_id].content_type, published_at=r.published_at)
         for r in corpus if reasons[r.result_id] != "unrelated"
     ]
     topics = await extract_topics(qwen, issue, discussion)
@@ -609,6 +612,7 @@ async def analyze_reactions(
         keywords=await refine_keywords(qwen, found.discussion_posts or reacting, topics,
                                        [*issue.issue.split(), *REGION_ALIASES.get(issue.region, [issue.region]), *found.exclude_keywords]),
         key_topics=[t.topic for t in topics], discussion_topics=topics, discussion_size=len(found.discussion_posts),
+        quantitative=build_quantitative(found.discussion_posts, issue.start_date, issue.end_date) if found.discussion_posts else None,
     )
     if len(reacting) < MIN_OPINION_POSTS:
         # Say so instead of inventing reactions from too few posts.

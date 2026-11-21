@@ -7,10 +7,13 @@ Qwen writes, and that is checked for numbers that do not appear upstream.
 import json
 import re
 
+from pydantic import Field
+
 from app.research.query_expansion import QwenQueryExpansionService
 from app.schemas.common import SchemaBase
 from app.schemas.research import IssueInput
 from app.search.documents import FactResearchResult
+from app.search.quant import volume_lines
 from app.search.opinion import INSUFFICIENT, MIN_OPINION_POSTS, UNCLEAR, DiscussionTopic, OpinionResearchResult, OverallSentiment, ReactionTheme
 
 IMPLICATION_PROMPT = """
@@ -74,6 +77,7 @@ class IssueReport(SchemaBase):
     sample_size: int
     keywords: list[str]
     channel_notes: list[str]
+    volume: list[str] = Field(default_factory=list)  # code-written count sentences; empty for reports made before this existed
     implications: list[str]
     implications_note: str | None
     uncertainties: list[str]
@@ -153,11 +157,12 @@ async def build_report(
         sample_size=opinion.reaction_count,
         keywords=[k.keyword for k in opinion.keywords[:10]],
         channel_notes=[_channel_note(c) for c in opinion.channel_insights],
+        volume=volume_lines(opinion.quantitative) if opinion.quantitative else [],
         implications=implications,
         implications_note=NO_OPINION_NOTE if thin else None,
         uncertainties=fact.uncertainties,
         sources=[SourceRef(result_id=i, title=source_index[i][0], url=source_index[i][1]) for i in used_ids if i in source_index],
-        limitations=[opinion.limitations, "사실 정리는 수집된 문서 중 최대 8건의 앞부분을 기준으로 했다."],
+        limitations=[opinion.limitations, *([opinion.quantitative.basis] if opinion.quantitative else []), "사실 정리는 수집된 문서 중 최대 8건의 앞부분을 기준으로 했다."],
     )
 
 
@@ -183,6 +188,7 @@ def render_markdown(r: IssueReport) -> str:
     out += ["", "## 주요 논점", f"수집된 관련 글 {r.discussion_size}건에서 반복해서 다뤄진 논점이며, 여론의 방향(기대·우려)을 뜻하지 않는다.", bullets(topics)]
     out += ["", "## 여론 표정", f"**{r.overall_tone}** (유효 반응 {r.sample_size}건)" + (f" — {r.reaction_summary}" if r.reaction_summary else ""), "", "주요 반응", bullets(themes) if themes else bullets(r.confirmed_reactions),
             "", "## 연관 키워드", ", ".join(r.keywords) or "(없음)", "", "## 채널별 특징", bullets(r.channel_notes),
+            *(["", "## 언급량 및 추이", bullets(r.volume)] if r.volume else []),
             "", "## 시사점"]
     if r.implications_note:
         out += [r.implications_note if r.implications else "온라인 반응 표본이 부족하여 여론 기반 시사점을 도출하지 않음"]
