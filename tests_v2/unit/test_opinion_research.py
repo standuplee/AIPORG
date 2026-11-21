@@ -7,7 +7,7 @@ from app.search.documents import FactResearchResult
 from app.search.naver import NaverSearchProvider
 from app.search.opinion import (
     DiscussionTopic, EvidenceCheck, EvidenceCheckBatch, OpinionAnalysis, TopicExtraction, OpinionFilterBatch, OpinionFilterResult, OverallSentiment, ReactionTheme, ReactionTone,
-    analyze_opinion, analyze_reactions, build_queries, channel_insights, check_reaction, collect_corpus, filter_posts, find_reaction_candidates, key_terms, summarize_tone, top_keywords,
+    KeywordJudgment, analyze_opinion, analyze_reactions, build_queries, channel_insights, check_reaction, collect_corpus, filter_posts, find_reaction_candidates, key_terms, summarize_tone, top_keywords,
 )
 from app.search.schemas import SearchChannel as C
 from app.search.schemas import SearchProvider, SearchResult
@@ -77,6 +77,8 @@ class _FilterQwen:
         import json
 
         data = json.loads(user)
+        if schema is KeywordJudgment:  # no refinement: the plain counts are used
+            return KeywordJudgment()
         if schema is EvidenceCheckBatch:  # second look at the quoted phrase only
             return EvidenceCheckBatch(checks=[
                 EvidenceCheck(result_id=i["result_id"], is_actual_reaction="구호" not in i["title"], reason="r") for i in data["items"]])
@@ -282,3 +284,49 @@ def test_channel_insights_report_discussion_topics_without_reaction_sample():
     by = {c.channel: c for c in channel_insights([], [], posts, [topic])}
     assert by["BLOG"].discussion_topics == ["고용 전환"] and by["BLOG"].discussion_size == 4
     assert by["CAFE"].discussion_topics == [] and by["CAFE"].sentiment is OverallSentiment.UNKNOWN  # 1 source < MIN_CHANNEL_POSTS
+
+
+class _KeywordQwen:
+    def __init__(self, **judgment):
+        self.judgment = judgment
+
+    async def chat(self, system, user, schema, **kw):
+        from app.search.opinion import KeywordJudgment
+        return KeywordJudgment(**self.judgment)
+
+
+def test_refine_keywords_drops_merges_restores_phrases_and_recounts_everything():
+    from app.search.opinion import refine_keywords
+    posts = [_hit(1, "석탄화력발전소 노동자 정의로운 전환", "본회의 통과"), _hit(2, "석탄발전 폐쇄 노동자 대책", "정의로운 전환 요구"),
+             _hit(3, "석탄화력발전소 대체산업 노동자", "충남 태안"), _hit(4, "대표발의 본회의", "")]
+    topics = [DiscussionTopic(topic_id="T1", topic="정의로운 전환 기반 마련", summary="s", source_result_ids=[posts[0].result_id, posts[1].result_id])]
+    qwen = _KeywordQwen(drop=["본회의", "정의"], merge=[["석탄화력발전소", "석탄발전", "발전소", "지어낸말"]],
+                        phrases=["정의로운 전환", "토픽에 없는 구절"])
+    out = {k.keyword: k for k in asyncio.run(refine_keywords(qwen, posts, topics, ["충남", "충청남도"]))}
+    assert out["석탄화력발전소"].doc_count == 3 and out["석탄화력발전소"].variants == ["석탄발전"]  # only real candidates merge; counted by the code
+    assert out["정의로운 전환"].doc_count == 2 and out["정의로운 전환"].topic_ids == ["T1"]  # phrase restored from the topic name
+    assert out["노동자"].doc_count == 3 and out["노동자"].topic_ids == ["T1"]                 # untouched candidates are kept
+    assert not {"본회의", "정의", "충남", "토픽에 없는 구절", "지어낸말"} & set(out)            # dropped, banned, or not in the data
+
+
+def test_refine_keywords_falls_back_to_plain_counts_when_qwen_fails():
+    from app.search.opinion import refine_keywords
+
+    class Broken:
+        async def chat(self, *a, **k):
+            raise RuntimeError("ollama down")
+
+    posts = [_hit(1, "노동자 전환 대책", ""), _hit(2, "노동자 전환 요구", "")]
+    out = asyncio.run(refine_keywords(Broken(), posts, [], []))
+    assert [(k.keyword, k.doc_count) for k in out][:1] == [("노동자", 2)]
+
+
+def test_refine_keywords_rejects_unrelated_merges_and_absorbs_words_that_only_live_inside_a_longer_one():
+    from app.search.opinion import refine_keywords
+    posts = [_hit(1, "석탄화력발전 정의로운 전환 신호탄", ""), _hit(2, "석탄화력발전 정의로운 전환 신호탄", ""), _hit(3, "전환 대책 신호탄 노동자", "노동자 전환 대책"), _hit(4, "전환 일정", ""), _hit(5, "산업 전환 논의", ""), _hit(6, "전환 속도", "")]
+    topics = [DiscussionTopic(topic_id="T1", topic="정의로운 전환", summary="s", source_result_ids=[posts[0].result_id, posts[1].result_id])]
+    qwen = _KeywordQwen(merge=[["전환", "신호탄"]], phrases=["정의로운 전환"])
+    out = {k.keyword: k for k in asyncio.run(refine_keywords(qwen, posts, topics, []))}
+    assert out["전환"].variants == [] and out["신호탄"].variants == []   # no shared stem -> not merged
+    assert out["정의로운 전환"].doc_count == 2 and "정의" not in out      # the fragment only lives inside the phrase
+    assert out["전환"].doc_count == 6                                    # "전환" is also used outside it, so it stays

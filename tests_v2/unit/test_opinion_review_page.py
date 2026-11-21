@@ -73,6 +73,9 @@ def test_analysis_uses_only_approved_ids_and_writes_a_reviewed_report(session_fi
     from app.research.report import ImplicationDraft
 
     async def chat(self, system, user, schema, *, num_ctx=None):
+        from app.search.opinion import KeywordJudgment
+        if schema is KeywordJudgment:
+            return KeywordJudgment()
         assert schema is ImplicationDraft  # only 1 approved reaction -> no theme call, fact-only implications
         return ImplicationDraft(implications=["진행 상황을 지속적으로 점검할 필요가 있다."])
 
@@ -106,6 +109,9 @@ def test_analysis_report_contains_only_the_kept_topics(session_file, monkeypatch
     from app.research.report import ImplicationDraft
 
     async def chat(self, system, user, schema, *, num_ctx=None):
+        from app.search.opinion import KeywordJudgment
+        if schema is KeywordJudgment:
+            return KeywordJudgment()
         return ImplicationDraft(implications=[])
 
     monkeypatch.setattr(QwenQueryExpansionService, "chat", chat)

@@ -4,6 +4,7 @@ Search API hits are a sample, not the whole online opinion, so no percentages ar
 """
 
 import json
+import logging
 import re
 from collections import Counter
 from enum import Enum
@@ -153,6 +154,8 @@ class OpinionFilterBatch(SchemaBase):
 class KeywordCount(SchemaBase):
     keyword: str
     doc_count: int
+    variants: list[str] = Field(default_factory=list)  # merged spellings; doc_count covers a post mentioning any of them
+    topic_ids: list[str] = Field(default_factory=list)  # discussion topics whose own source posts use this keyword
 
 
 class OpinionResearchResult(OpinionAnalysis):
@@ -270,7 +273,8 @@ def build_queries(issue: IssueInput, fact: FactResearchResult | None = None) -> 
 
 
 # Words that are frequent in any news-like text and say nothing about a specific issue.
-GENERIC_KEYWORDS = frozenset({"규모", "계획", "발표", "지원", "통과", "마련", "대응", "추진", "관련", "이번", "통해", "위해", "국회", "구축", "확대"})
+GENERIC_KEYWORDS = frozenset({"규모", "계획", "발표", "지원", "통과", "마련", "대응", "추진", "관련", "이번", "통해", "위해", "국회", "구축", "확대",
+                              "본회의", "대표발의", "의원", "법안", "제정", "확인", "강화", "체결", "협약", "후속", "뒷받침", "도민", "지사", "도지사", "현장", "과정", "내용", "강조"})
 def _norm(text: str) -> str:
     return re.sub(r"\s+", "", text).casefold()
 
@@ -311,7 +315,94 @@ def top_keywords(corpus: list[SearchResult], exclude: list[str], n: int = 15) ->
     counts: Counter[str] = Counter()
     for r in corpus:
         counts.update({k for k in _extract_keyword_tokens(f"{r.title} {r.snippet}") if k not in GENERIC_KEYWORDS and not any(b in _norm(k) or _norm(k) in b for b in banned)})
-    return [KeywordCount(keyword=k, doc_count=c) for k, c in counts.most_common(n)]
+    return [KeywordCount(keyword=k, doc_count=c) for k, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:n]]  # ties by name: set order varies per process
+
+
+MIN_KEYWORD_DOCS = 2  # a keyword needs this many posts, otherwise it is one writer's wording
+KEYWORD_CANDIDATES = 40
+KEYWORD_PROMPT = (
+    "너는 온라인 글에서 한 이슈를 설명하는 핵심 키워드를 다듬는 편집자다. 입력의 candidates(단어와 문서 수)와 topics(논점 이름)만 근거로 쓴다. "
+    "candidates 전체를 다시 쓰지 말고 아래 세 가지만 짧게 답한다.\n"
+    "- drop: 이슈 내용을 설명하지 못하는 단어. 국회 절차(본회의·대표발의·의원), 막연한 일반 명사·형용사성 말(과정·내용·강조·실질적), "
+    "그리고 phrases로 복원한 구절의 조각 단어.\n"
+    "- merge: 같은 뜻의 표기를 묶은 그룹(예: 석탄화력발전소/석탄발전/석탄화력발전). 그룹은 candidates에 있는 단어만 넣는다.\n"
+    "- phrases: 단어 하나로는 뜻이 쪼개지는 표현(예: '정의'+'전환')을 topics 이름에 글자 그대로 있는 구절로 복원한 것. topics에 없는 말은 쓰지 않는다.\n"
+    "숫자는 쓰지 않는다. 해당 없으면 빈 목록을 낸다."
+)
+
+
+class KeywordJudgment(SchemaBase):
+    drop: list[str] = Field(default_factory=list)
+    merge: list[list[str]] = Field(default_factory=list)
+    phrases: list[str] = Field(default_factory=list)
+
+
+def _same_stem(a: str, b: str) -> bool:
+    a, b = _norm(a), _norm(b)
+    return a in b or b in a or a[:2] == b[:2]
+
+
+def _doc_count(texts: list[str], members: list[str]) -> int:
+    wanted = [_norm(m) for m in members if _norm(m)]
+    return sum(1 for t in texts if any(w in t for w in wanted))
+
+
+async def refine_keywords(
+    qwen: QwenQueryExpansionService, posts: list, topics: list[DiscussionTopic], exclude: list[str], n: int = 15
+) -> list[KeywordCount]:
+    """Qwen only says what to drop, merge or restore; the code keeps everything else and recounts every number.
+
+    Counts are posts (title + snippet) that literally contain a member. A restored phrase must appear verbatim in a topic name.
+    """
+    candidates = top_keywords(posts, exclude, KEYWORD_CANDIDATES)
+    if not candidates:
+        return []
+    texts = {r.result_id: _norm(f"{r.title} {r.snippet}") for r in posts}
+    all_texts = list(texts.values())
+    banned = [_norm(t) for t in exclude if _norm(t)]
+    payload = {"candidates": [{"word": c.keyword, "doc_count": c.doc_count} for c in candidates],
+               "topics": [t.topic for t in topics]}
+    try:
+        judged: KeywordJudgment = await qwen.chat(KEYWORD_PROMPT, json.dumps(payload, ensure_ascii=False), KeywordJudgment)
+    except Exception:  # noqa: BLE001 - keyword quality must not block the report; the plain count is still a true count
+        logging.getLogger(__name__).warning("keyword refinement failed; using plain document counts", exc_info=True)
+        return candidates[:n]
+    known = {c.keyword for c in candidates}
+    dropped = {_norm(w) for w in judged.drop}
+    topic_text = [_norm(t.topic) for t in topics]
+    groups: list[list[str]] = []
+    merged: set[str] = set()
+    for g in judged.merge:
+        members = [m for m in dict.fromkeys(g) if m in known and m not in merged]
+        # an 8B model also merges unrelated words ("전력" + "신호탄"); only spellings that share 2+ characters may merge
+        members = [m for m in members if m == members[0] or _same_stem(members[0], m)]
+        if len(members) > 1:
+            groups.append(members)
+            merged.update(members)
+    groups += [[c.keyword] for c in candidates if c.keyword not in merged]
+    groups += [[p] for p in dict.fromkeys(judged.phrases) if _norm(p) and any(_norm(p) in t for t in topic_text)]
+    out: list[KeywordCount] = []
+    used: set[str] = set()
+    for members in groups:
+        members = [m for m in members if _norm(m) not in dropped and _norm(m) not in used
+                   and not any(b in _norm(m) or _norm(m) in b for b in banned)]
+        counts = {m: _doc_count(all_texts, [m]) for m in members}
+        members = [m for m in members if counts[m]]  # keep only spellings that really occur
+        total = _doc_count(all_texts, members)
+        if not members or total < MIN_KEYWORD_DOCS:
+            continue
+        label = max(members, key=lambda m: (counts[m], len(m)))
+        used.update(_norm(m) for m in members)
+        linked = [t.topic_id for t in topics
+                  if _doc_count([texts[i] for i in t.source_result_ids if i in texts], members) >= MIN_KEYWORD_DOCS]
+        out.append(KeywordCount(keyword=label, doc_count=total, variants=[m for m in members if m != label], topic_ids=linked))
+    # shortcut: a word that sits inside a longer keyword and is barely used outside it ("발전소" in "석탄화력발전") is absorbed; tolerance 2 docs
+    names = {k.keyword: [_norm(k.keyword), *(_norm(v) for v in k.variants)] for k in out}
+    out = [k for k in out if not any(
+        k.doc_count - o.doc_count <= 2 and o.keyword != k.keyword and any(_norm(k.keyword) in w and len(w) > len(_norm(k.keyword)) for w in names[o.keyword])
+        for o in out)]
+    out.sort(key=lambda k: (-k.doc_count, k.keyword))
+    return out[:n] or candidates[:n]
 
 
 async def _ask_all(qwen, prompt: str, items: list[SearchResult], build, schema, results_of, batch: int) -> dict:
@@ -515,7 +606,8 @@ async def analyze_reactions(
         reaction_count=len(reacting), channel_counts=dict(Counter(r.channel for r in reacting)), reactions=reacting,
         filtered_out={k: v for k, v in excluded.items() if v},
         # keywords describe what is discussed, so they come from every relevant post, not only from reactions
-        keywords=top_keywords(found.discussion_posts or reacting, [*issue.issue.split(), issue.region, *found.exclude_keywords]),
+        keywords=await refine_keywords(qwen, found.discussion_posts or reacting, topics,
+                                       [*issue.issue.split(), *REGION_ALIASES.get(issue.region, [issue.region]), *found.exclude_keywords]),
         key_topics=[t.topic for t in topics], discussion_topics=topics, discussion_size=len(found.discussion_posts),
     )
     if len(reacting) < MIN_OPINION_POSTS:
