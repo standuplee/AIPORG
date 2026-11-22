@@ -28,6 +28,7 @@ from app.schemas.research import (
 )
 
 QWEN_BASE_URL = "http://localhost:11434"
+MAX_ATTEMPTS = 3
 
 
 class _Response(Protocol):
@@ -70,21 +71,32 @@ class QwenQueryExpansionService:
     async def chat(
         self, system: str, user: str, schema: type[BaseModel], *, num_ctx: int | None = None
     ) -> Any:
-        response = await self.transport.post(
-            f"{self.base_url}/api/chat",
-            json_body={
-                "model": self.model,
-                "stream": False,
-                "think": False,
-                "format": schema.model_json_schema(),
-                # Ollama's default context window is small and silently truncates long prompts.
-                "options": {"temperature": 0.2, **({"num_ctx": num_ctx} if num_ctx else {})},
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-            },
-        )
+        body = {
+            "model": self.model,
+            "stream": False,
+            "think": False,
+            "format": schema.model_json_schema(),
+            # Ollama's default context window is small and silently truncates long prompts.
+            "options": {"temperature": 0.2, **({"num_ctx": num_ctx} if num_ctx else {})},
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        }
+        # Local Ollama intermittently drops connections or returns 5xx; a single blip
+        # must not discard a long run. Timeouts are not retried (a 600s retry is too costly).
+        for attempt in range(MAX_ATTEMPTS):
+            try:
+                response = await self.transport.post(f"{self.base_url}/api/chat", json_body=body)
+            except requests.Timeout:
+                raise
+            except (requests.ConnectionError, ConnectionError):
+                if attempt == MAX_ATTEMPTS - 1:
+                    raise
+                continue
+            if response.status_code >= 500 and attempt < MAX_ATTEMPTS - 1:
+                continue
+            break
         if not 200 <= response.status_code < 300:
             raise ValueError(f"Qwen response returned HTTP {response.status_code}")
         try:

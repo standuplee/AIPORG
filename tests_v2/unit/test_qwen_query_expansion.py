@@ -184,3 +184,49 @@ def test_qwen_rejects_malformed_structured_output() -> None:
                 )
             )
         )
+
+
+class _Flaky:
+    def __init__(self, *outcomes) -> None:
+        self.outcomes = list(outcomes)
+        self.calls = 0
+
+    async def post(self, url, *, json_body):
+        self.calls += 1
+        out = self.outcomes.pop(0)
+        if isinstance(out, Exception):
+            raise out
+        return out
+
+
+class _Http500(_Response):
+    status_code = 500
+
+
+def _chat_ok() -> _Response:
+    return _Response({"message": {"content": json.dumps({"subjects": []})}})
+
+
+def test_chat_retries_transient_connection_and_5xx_errors() -> None:
+    from pydantic import BaseModel
+
+    class _S(BaseModel):
+        subjects: list[str]
+
+    transport = _Flaky(ConnectionError("closed"), _Http500({}), _chat_ok())
+    service = QwenQueryExpansionService(transport=transport)
+    result = asyncio.run(service.chat("s", "u", _S))
+    assert result.subjects == [] and transport.calls == 3
+
+
+def test_chat_gives_up_after_retries() -> None:
+    from pydantic import BaseModel
+
+    class _S(BaseModel):
+        subjects: list[str]
+
+    transport = _Flaky(*[ConnectionError("closed")] * 3)
+    service = QwenQueryExpansionService(transport=transport)
+    with pytest.raises(ConnectionError):
+        asyncio.run(service.chat("s", "u", _S))
+    assert transport.calls == 3
