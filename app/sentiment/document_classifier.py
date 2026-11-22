@@ -9,14 +9,20 @@ from app.core.enums import SentimentLabel
 from app.schemas.common import SchemaBase
 from app.schemas.document import CleanDocument, DocumentId
 
-PROMPT_VERSION = "doc-sentiment-v1"
+PROMPT_VERSION = "doc-sentiment-v2"
 BODY_CHARS = 1500
 PROMPT = (
     "너는 온라인 글이 주어진 이슈를 어떻게 평가하는지 분류하는 분석가다. 입력의 제목과 본문(text)만 근거로 쓴다.\n"
-    "- label: positive(이슈·정책·결과를 긍정적으로 평가/기대), negative(비판·우려·반대·부정적 결과), neutral(사실 전달·평가 없음), "
-    "mixed(긍정과 부정이 함께 있음), unclear(판단할 근거 부족).\n"
-    "- 단순히 사건·일정·수치를 나열한 글은 neutral이다. 슬픈 사건 자체의 묘사와 행정에 대한 비판은 구분한다.\n"
-    "- positive/negative/mixed이면 evidence에 판단 근거가 된 문장을 text에서 글자 그대로 복사한다. 바꿔 쓰거나 요약하지 않는다.\n"
+    "핵심 원칙: 사건이 좋은 일인지가 아니라, 글이 '평가·감정·입장'을 직접 표현하는지를 본다.\n"
+    "- 법 통과, 발표, 협약, 일정, 수치를 전하는 보도·보도자료는 평가 표현이 없으면 neutral이다. "
+    "'통과됐다'는 긍정이 아니다.\n"
+    "- label: positive(글쓴이나 인용된 사람이 환영·기대·찬성·성과 평가를 명시), negative(비판·우려·반대·부정 평가를 명시), "
+    "neutral(사실 전달, 명시적 평가 없음), mixed(긍정·부정 평가가 함께 있음), unclear(판단할 근거 부족).\n"
+    "- evaluative: 평가·감정·입장을 드러내는 표현(예: 환영, 기대, 우려, 비판, 숙원, 첩첩산중)이 text에 실제로 있으면 true, "
+    "사실만 전하면 false. positive/negative/mixed인데 false이면 안 된다.\n"
+    "- positive/negative/mixed이면 evidence에 그 평가 표현이 들어 있는 문장을 text에서 글자 그대로 복사한다. "
+    "사실만 담은 문장은 evidence가 될 수 없다. 바꿔 쓰거나 요약하지 않는다. evidence는 비워 둘 수 없다.\n"
+    "- reason은 판단 이유를 네 말로 한 문장 쓴다. 본문 문장을 reason에 옮기지 말고 evidence에 넣는다.\n"
     "- 문서마다 document_id를 그대로 돌려준다. 입력에 없는 사실은 쓰지 않는다."
 )
 
@@ -24,6 +30,7 @@ PROMPT = (
 class SentimentItem(SchemaBase):
     document_id: str
     label: Literal["positive", "negative", "neutral", "mixed", "unclear"]
+    evaluative: bool = True
     evidence: str = ""
     reason: str = ""
 
@@ -51,7 +58,7 @@ def _judge(doc: CleanDocument, answer: SentimentItem) -> SentimentVerdict:
     basis = _basis(doc)
     if answer.label == "unclear":
         return SentimentVerdict(label=None, reason=answer.reason or "unclear", basis=basis)
-    if answer.label == "neutral":
+    if answer.label == "neutral" or not answer.evaluative:
         return SentimentVerdict(label=SentimentLabel.NEUTRAL, reason=answer.reason, basis=basis)
     evidence = answer.evidence.strip()
     if not evidence or _norm(evidence) not in _norm(f"{doc.title} {doc.body}"):

@@ -92,7 +92,7 @@ def test_store_merges_metadata_and_keeps_existing_keys():
     assert store_sentiment(repo, uuid4(), doc, verdict, model="qwen3:8b") is True
     meta = repo.saved[0].metadata
     assert meta["body_available"] is True and meta["sentiment"] == "positive" and meta["sentiment_evidence"] == "경제가 살아날 것이다"
-    assert (meta["sentiment_model"], meta["sentiment_prompt_version"], meta["sentiment_review"], meta["sentiment_basis"]) == ("qwen3:8b", "doc-sentiment-v1", "AI_ONLY", "BODY")
+    assert (meta["sentiment_model"], meta["sentiment_prompt_version"], meta["sentiment_review"], meta["sentiment_basis"]) == ("qwen3:8b", "doc-sentiment-v2", "AI_ONLY", "BODY")
 
 
 def test_unclassified_verdict_writes_no_sentiment_key_but_keeps_the_reason():
@@ -110,3 +110,23 @@ def test_reviewed_documents_are_not_overwritten():
         repo = _Repo()
         assert store_sentiment(repo, uuid4(), doc, SentimentVerdict(label=SentimentLabel.POSITIVE, evidence="x", reason="r", basis="BODY"), model="m") is False
         assert repo.saved == []
+
+
+def test_label_without_an_explicit_evaluation_is_downgraded_to_neutral():
+    """A report that merely states an event ("법이 통과됐다") is neutral even if Qwen calls it positive."""
+
+    doc = _doc(body="특별법이 국회 본회의를 통과했다.")
+
+    class Q(FakeQwen):
+        async def chat(self, system, user, schema, **kw):
+            return SentimentBatch(results=[SentimentItem(document_id=str(doc.document_id), label="positive",
+                                                          evidence="특별법이 국회 본회의를 통과했다", evaluative=False, reason="r")])
+
+    out = _run(Q({}), [doc])
+    assert out[doc.document_id].label is SentimentLabel.NEUTRAL
+    assert out[doc.document_id].evidence is None
+
+
+def test_prompt_version_marks_the_evaluation_rule():
+    from app.sentiment.document_classifier import PROMPT_VERSION
+    assert PROMPT_VERSION == "doc-sentiment-v2"
