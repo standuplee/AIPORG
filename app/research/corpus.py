@@ -13,7 +13,7 @@ from app.search.opinion import DiscussionPost
 from app.search.schemas import SearchResult
 from app.search.signals import source_type
 
-_OPINION_SOURCE = {"BLOG": "BLOG", "CAFE": "COMMUNITY"}
+_OPINION_SOURCE = {"BLOG": "BLOG", "CAFE": "COMMUNITY", "COMMUNITY": "COMMUNITY"}
 
 
 class CorpusItem(SchemaBase):

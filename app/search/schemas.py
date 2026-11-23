@@ -19,6 +19,7 @@ class SearchChannel(str, Enum):
     WEB = "WEB"
     BLOG = "BLOG"
     CAFE = "CAFE"
+    COMMUNITY = "COMMUNITY"  # a post found through web search on a 2.0 community site
 
 
 class SearchResult(SchemaBase):

@@ -44,7 +44,7 @@ def source_type(result: SearchResult) -> SourceType:
             return kind
     if result.channel is SearchChannel.BLOG:
         return SourceType.BLOG
-    if result.channel is SearchChannel.CAFE:
+    if result.channel in (SearchChannel.CAFE, SearchChannel.COMMUNITY):
         return SourceType.COMMUNITY
     if result.channel is SearchChannel.NEWS or _NEWS_PATH.search(url):
         return SourceType.NEWS

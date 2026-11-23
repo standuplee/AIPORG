@@ -35,7 +35,7 @@ MAX_TOPIC_SHARE = 0.8  # a topic nearly every post mentions is the issue itself,
 SAME_SOURCES = 0.8  # Jaccard overlap of source sets above which two topics count as duplicates
 SNIPPET_CHARS = 200
 NUM_CTX = 16384
-LIMITATIONS = "네이버·다음 검색 API가 반환한 블로그·카페 글 표본이며 전체 온라인 여론이 아니다. 비율은 산출하지 않았다."
+LIMITATIONS = "네이버·다음 검색 API가 반환한 블로그·카페 글과 커뮤니티 검색 결과(제목·스니펫) 표본이며 전체 온라인 여론이 아니다. 비율은 산출하지 않았다."
 
 
 class OverallSentiment(str, Enum):

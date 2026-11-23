@@ -17,7 +17,7 @@ def map_channel(item: CorpusItem) -> ChannelType | None:
         return ChannelType.NEWS
     if item.channel == "BLOG":
         return ChannelType.BLOG
-    if item.channel == "CAFE":
+    if item.channel in ("CAFE", "COMMUNITY"):
         return ChannelType.COMMUNITY
     if item.channel == "WEB" and item.source_type == "NEWS":
         return ChannelType.NEWS

@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from app.search.base import SearchProviderBase
+from app.search.community import CommunitySearch
 from app.search.deduplicator import deduplicate
 from app.search.schemas import SearchChannel as C
 from app.search.schemas import SearchResult
@@ -18,8 +19,9 @@ OPINION_PLAN = [("daum", C.BLOG, "accuracy"), ("daum", C.CAFE, "accuracy"), ("na
 
 
 class SearchService:
-    def __init__(self, naver: SearchProviderBase, daum: SearchProviderBase) -> None:
+    def __init__(self, naver: SearchProviderBase, daum: SearchProviderBase, community_policies=None) -> None:
         self.providers = {"naver": naver, "daum": daum}
+        self.community = CommunitySearch(naver, community_policies) if community_policies else None
 
     async def _run(self, plan, query: str, limit: int, page: int = 1) -> list[SearchResult]:
         groups = await asyncio.gather(
@@ -39,4 +41,7 @@ class SearchService:
         return await self._run(FACT_PLAN, query, limit)
 
     async def search_opinion(self, query: str, limit: int = 10, page: int = 1) -> list[SearchResult]:
-        return await self._run(OPINION_PLAN, query, limit, page)
+        results = await self._run(OPINION_PLAN, query, limit, page)
+        if self.community:
+            results = deduplicate(results + await self.community.search(query, limit, page))
+        return results

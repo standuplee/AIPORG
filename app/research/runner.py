@@ -59,6 +59,7 @@ def main() -> None:
 
     from app.core.config import get_settings
     from app.research.query_expansion import QwenQueryExpansionService
+    from app.collectors.community.policy import load_policies
     from app.search.daum import DaumSearchProvider
     from app.search.naver import NaverSearchProvider
     from app.search.service import SearchService
@@ -74,7 +75,7 @@ def main() -> None:
     a = p.parse_args()
     load_dotenv()
     s = get_settings()
-    search = SearchService(naver=NaverSearchProvider(s.naver_client_id or "", s.naver_client_secret or ""), daum=DaumSearchProvider(s.kakao_rest_api_key or ""))
+    search = SearchService(naver=NaverSearchProvider(s.naver_client_id or "", s.naver_client_secret or ""), daum=DaumSearchProvider(s.kakao_rest_api_key or ""), community_policies=load_policies())
     issue = IssueInput(region=a.region, start_date=a.start, end_date=a.end, issue=a.issue)
     session, corpus = asyncio.run(run_issue(QwenQueryExpansionService(), search, issue, a.name, a.out, max_questions=a.max_questions))
     dated = sum(1 for i in corpus.items if i.published_at)
