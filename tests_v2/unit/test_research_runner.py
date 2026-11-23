@@ -117,3 +117,17 @@ def test_nothing_is_written_when_no_document_can_be_read(wired, monkeypatch, tmp
     with pytest.raises(ValueError, match="no readable"):
         asyncio.run(runner.run_issue(wired.qwen, wired.search, ISSUE, "coal", tmp_path))
     assert list(tmp_path.iterdir()) == []
+
+
+def test_community_dates_are_resolved_before_the_corpus_is_built_and_logged(wired, monkeypatch, tmp_path):
+    seen = {}
+
+    async def resolve(collector, posts, issue):
+        seen["collector"], seen["posts"] = collector, posts
+        return [], {"community": 1, "dated": 0, "out_of_period": 1, "undated": 0}
+
+    monkeypatch.setattr(runner, "resolve_community_dates", resolve)
+    marker = object()
+    _, corpus = asyncio.run(runner.run_issue(wired.qwen, wired.search, ISSUE, "coal", tmp_path, community=marker))
+    assert seen["collector"] is marker and seen["posts"] == [wired.post]
+    assert corpus.search_log[-1] == {"round": "community_dates", "community": 1, "dated": 0, "out_of_period": 1, "undated": 0}

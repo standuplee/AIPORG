@@ -14,11 +14,12 @@ from app.research.review import ReviewSession, new_session, save_session
 from app.schemas.research import IssueInput, SearchPurpose
 from app.search.analyzer import analyze_results, select_for_fetch
 from app.search.fetcher import fetch_documents
+from app.search.community_dates import resolve_community_dates
 from app.search.opinion import build_queries, collect_corpus_adaptive, find_reaction_candidates, key_terms
 from app.search.synthesizer import synthesize_facts
 
 
-async def run_issue(qwen, search, issue: IssueInput, name: str, out_dir: Path, *, max_questions: int | None = None) -> tuple[ReviewSession, IssueCorpus]:
+async def run_issue(qwen, search, issue: IssueInput, name: str, out_dir: Path, *, max_questions: int | None = None, community=None) -> tuple[ReviewSession, IssueCorpus]:
     """Files are written only after every stage succeeded, so a failed run leaves no half-made session behind."""
     plan = await qwen.expand(issue)
     questions = plan.research_questions[:max_questions]
@@ -44,6 +45,9 @@ async def run_issue(qwen, search, issue: IssueInput, name: str, out_dir: Path, *
 
     queries = build_queries(issue, fact)
     corpus, dropped, search_log = await collect_corpus_adaptive(search, issue, queries, key_terms(issue, plan.decomposition), qwen=qwen, fact=fact)
+    if community is not None:  # community hits carry no date from web search; read the posts under 2.0's robots/rate rules
+        corpus, dates = await resolve_community_dates(community, corpus, issue)
+        search_log = [*search_log, {"round": "community_dates", **dates}]
     found = await find_reaction_candidates(qwen, issue, queries, corpus, dropped, list(plan.protected_terms))
     session = new_session(issue, found, fact, fact_sources)
     issue_corpus = build_corpus(issue, list(relevant.values()), fetched, found.discussion_posts).model_copy(update={"search_log": search_log})
@@ -59,6 +63,7 @@ def main() -> None:
 
     from app.core.config import get_settings
     from app.research.query_expansion import QwenQueryExpansionService
+    from app.collectors.community import CommunityCollector
     from app.collectors.community.policy import load_policies
     from app.search.daum import DaumSearchProvider
     from app.search.naver import NaverSearchProvider
@@ -75,9 +80,11 @@ def main() -> None:
     a = p.parse_args()
     load_dotenv()
     s = get_settings()
-    search = SearchService(naver=NaverSearchProvider(s.naver_client_id or "", s.naver_client_secret or ""), daum=DaumSearchProvider(s.kakao_rest_api_key or ""), community_policies=load_policies())
+    policies = load_policies()
+    search = SearchService(naver=NaverSearchProvider(s.naver_client_id or "", s.naver_client_secret or ""), daum=DaumSearchProvider(s.kakao_rest_api_key or ""), community_policies=policies)
+    community = CommunityCollector(client_id=s.naver_client_id or "", client_secret=s.naver_client_secret or "", policies=policies)
     issue = IssueInput(region=a.region, start_date=a.start, end_date=a.end, issue=a.issue)
-    session, corpus = asyncio.run(run_issue(QwenQueryExpansionService(), search, issue, a.name, a.out, max_questions=a.max_questions))
+    session, corpus = asyncio.run(run_issue(QwenQueryExpansionService(), search, issue, a.name, a.out, max_questions=a.max_questions, community=community))
     dated = sum(1 for i in corpus.items if i.published_at)
     print(f"saved session_{a.name}.json and corpus_{a.name}.json in {a.out}: {len(corpus.items)} items, {dated} with a publish date")
 

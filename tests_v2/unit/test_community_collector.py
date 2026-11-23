@@ -384,3 +384,26 @@ def test_fmkorea_board_membership_is_cached_across_multiple_search_calls() -> No
     asyncio.run(collector.search(SearchQuery(query="다른 키워드", channels=[ChannelType.COMMUNITY])))
 
     assert len(transport.calls) == calls_after_first_search + 2
+
+
+def _collector(transport, **policy) -> CommunityCollector:
+    return CommunityCollector(client_id="id", client_secret="s", transport=transport, policies={"testsite": _policy(**policy)})
+
+
+def test_fetch_post_runs_one_url_through_the_gates_and_returns_the_parsed_post() -> None:
+    transport = MockTransport([_robots_allow_all(), HttpResponse(status_code=200, headers={}, body=_post_html())])
+    got = asyncio.run(_collector(transport).fetch_post("https://example.com/post/1"))
+    assert got is not None and got.posted_at == datetime(2026, 7, 20, 1, 0, tzinfo=timezone.utc)
+    assert not any(c["url"] == NAVER_WEBKR_URL for c in transport.calls)       # no discovery
+
+
+@pytest.mark.parametrize("url,policy,responses", [
+    ("https://example.com/post/1", {}, [_robots_disallow_all()]),                      # robots
+    ("https://example.com/member/1", {"exclude_patterns": ("/member",)}, []),          # excluded
+    ("https://elsewhere.com/post/1", {}, []),                                          # not a known site
+    ("https://example.com/post/1", {"max_requests_per_run": 0}, []),                   # budget used up
+])
+def test_fetch_post_returns_none_and_fetches_nothing_when_a_gate_refuses(url, policy, responses) -> None:
+    transport = MockTransport(responses)
+    assert asyncio.run(_collector(transport, **policy).fetch_post(url)) is None
+    assert all("/post/1" not in c["url"] or c["url"].endswith("robots.txt") for c in transport.calls)

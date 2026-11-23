@@ -142,29 +142,10 @@ class CommunityCollector(BaseCollector):
         candidates = await self._discover(query.query, enabled)
         results: list[SearchResult] = []
         for site, url, snippet_title in candidates:
-            policy = enabled[site]
-            if site == "fmkorea":
-                resolved_url = await self._resolve_fmkorea_url(url, policy)
-                if resolved_url is None:
-                    continue
-                url = resolved_url
-            if policy.is_excluded(url):
+            got = await self._gated_fetch(site, url)
+            if got is None:
                 continue
-            pattern = POST_URL_PATTERNS.get(site)
-            if pattern is not None:
-                parsed_url = urlparse(url)
-                if not pattern.search(parsed_url.path + "?" + parsed_url.query):
-                    continue
-            limiter = self._rate_limiter(site, policy)
-            if not limiter.can_request():
-                continue
-            if policy.respect_robots and not await self._robots_gates[site].allowed(url):
-                continue
-            if not await limiter.acquire():
-                continue
-            content = await self._fetch_and_parse(url, policy, site)
-            if content is None or not content.ok:
-                continue
+            url, content = got
             self._parsed_cache[url] = content
             results.append(
                 SearchResult(
@@ -177,6 +158,38 @@ class CommunityCollector(BaseCollector):
                 )
             )
         return results
+
+    async def fetch_post(self, url: str) -> PostContent | None:
+        """One already-known post URL through the same gates as search(): enabled site, exclude patterns, URL shape,
+        robots.txt, per-site rate limit. None when any gate refuses or the post has no parseable date."""
+        host = urlparse(url).netloc.lower()
+        site = next((name for name, p in self._enabled_policies().items() if p.matches_domain(host)), None)
+        got = await self._gated_fetch(site, url) if site else None
+        return got[1] if got else None
+
+    async def _gated_fetch(self, site: str, url: str) -> tuple[str, PostContent] | None:
+        """Returns (the url actually fetched, parsed post). fmkorea urls are rewritten to their allowed board form."""
+        policy = self._enabled_policies()[site]
+        if site == "fmkorea":
+            url = await self._resolve_fmkorea_url(url, policy)
+            if url is None:
+                return None
+        if policy.is_excluded(url):
+            return None
+        pattern = POST_URL_PATTERNS.get(site)
+        if pattern is not None:
+            parsed_url = urlparse(url)
+            if not pattern.search(parsed_url.path + "?" + parsed_url.query):
+                return None
+        limiter = self._rate_limiter(site, policy)
+        if not limiter.can_request():
+            return None
+        if policy.respect_robots and not await self._robots_gates[site].allowed(url):
+            return None
+        if not await limiter.acquire():
+            return None
+        content = await self._fetch_and_parse(url, policy, site)
+        return (url, content) if content is not None and content.ok else None
 
     async def fetch(self, result: SearchResult) -> RawDocument:
         content = self._parsed_cache.pop(result.url, None)
