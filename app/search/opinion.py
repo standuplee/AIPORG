@@ -14,7 +14,7 @@ from typing import Literal
 from pydantic import AwareDatetime, Field
 
 from app.analytics.service import _extract_keyword_tokens
-from app.research.query.regions import REGION_ALIASES
+from app.research.query.regions import BIAS_TERMS, REGION_ALIASES
 from app.research.query_expansion import QwenQueryExpansionService
 from app.schemas.common import SchemaBase
 from app.schemas.research import IssueDecomposition, IssueInput
@@ -287,29 +287,126 @@ def key_terms(issue: IssueInput, decomposition: IssueDecomposition | None = None
     return [t for t in issue.issue.split() if _norm(t) not in actions] or issue.issue.split()
 
 
+def _screen(r: SearchResult, issue: IssueInput, wanted: list[str]) -> str | None:
+    """None when the hit belongs in the corpus, else the reason it is dropped."""
+    if classify_period(r, issue.start_date, issue.end_date) is PeriodStatus.OUT_OF_PERIOD:
+        return "out_of_period"
+    return _off_topic(r, wanted)  # undated hits stay: blogs/cafes often lack a reliable date
+
+
+def _off_topic(r: SearchResult, wanted: list[str]) -> str | None:
+    if noise_flags(r):
+        return "structural_noise"
+    if not any(t in _norm(f"{r.title} {r.snippet}") for t in wanted):
+        return "no_issue_term"
+    return None
+
+
+async def _collect(search, issue: IssueInput, queries: list[str], terms: list[str], seen: dict[str, tuple[bool, bool]], pages=(1,)):
+    """seen maps result_id -> (kept, on topic), so a hit found twice is judged once. stats[query] = raw/on-topic counts and the new kept hits.
+    "relevant" ignores the period: the search API cannot filter by date, so most hits of any query are out of period."""
+    dropped: Counter[str] = Counter()
+    wanted, stats = [_norm(t) for t in terms], {}
+    for q in queries:  # sequential: stays gentle on the free API quotas
+        st = stats[q] = {"raw": 0, "relevant": 0, "kept": []}
+        for page in pages:
+            for r in await (search.search_opinion(q, PER_QUERY_LIMIT, page=page) if page > 1 else search.search_opinion(q, PER_QUERY_LIMIT)):
+                st["raw"] += 1
+                if r.result_id in seen:
+                    st["relevant"] += seen[r.result_id][1]
+                    continue
+                reason = _screen(r, issue, wanted)
+                relevant = _off_topic(r, wanted) is None
+                seen[r.result_id] = (reason is None, relevant)
+                st["relevant"] += relevant
+                if reason:
+                    dropped[reason] += 1
+                else:
+                    st["kept"].append(r)
+    return stats, dict(dropped)
+
+
 async def collect_corpus(
     search: SearchService, issue: IssueInput, queries: list[str], terms: list[str]
 ) -> tuple[list[SearchResult], dict[str, int]]:
-    seen, hits = set(), []
-    for q in queries:  # sequential: stays gentle on the free API quotas
-        for r in await search.search_opinion(q, PER_QUERY_LIMIT):
-            if r.result_id not in seen:
-                seen.add(r.result_id)
-                hits.append(r)
+    stats, dropped = await _collect(search, issue, queries, terms, {})
+    return [r for st in stats.values() for r in st["kept"]], dropped
+
+
+MIN_CORPUS = 50  # below this many kept posts per issue, the queries are widened
+MIN_FIT = 0.3  # share of a derived query's hits that must be on topic and not noise (period is not judged)
+DEEP_PAGES = (2, 3, 4, 5)  # base queries: only ~20% of hits fall in a past month, so go deeper
+MIN_FIT_SAMPLE = 5  # fewer raw hits than this say nothing about a query's fit
+MAX_EXPANSION_QUERIES = 8
+LIFE_PROMPT = (
+    "이슈와 관련해 사람들이 블로그·카페에서 실제로 쓰는 생활 표현을 제안한다. 이해관계자(주민, 노동자, 상인 등)가 겪는 일, "
+    "생활 장소, 구어체 질문에 쓰는 짧은 명사·명사구를 최대 8개. 이슈 이름은 반복하지 않는다. "
+    "기대·우려·찬반 같은 평가 단어는 쓰지 않는다. 입력에 없는 사실은 만들지 않는다."
+)
+
+
+class LifeTerms(SchemaBase):
+    terms: list[str]
+
+
+def _period_words(issue: IssueInput) -> list[str]:
+    months = sorted({(issue.start_date.year, issue.start_date.month), (issue.end_date.year, issue.end_date.month)})
+    return [f"{y}년 {m}월" for y, m in months] + [f"{m}월" for _, m in months]
+
+
+def _clean_terms(raw: list[str], issue: IssueInput, limit: int) -> list[str]:
+    issue_text = _norm(issue.issue)
+    out = []
+    for t in (t.strip() for t in raw):
+        if not 2 <= len(t) <= 10 or t in out or _norm(t) in issue_text or any(b in t for b in BIAS_TERMS):
+            continue
+        out.append(t)
+    return out[:limit]
+
+
+async def collect_corpus_adaptive(
+    search: SearchService, issue: IssueInput, queries: list[str], terms: list[str], *,
+    qwen=None, fact: FactResearchResult | None = None, target: int = MIN_CORPUS,
+) -> tuple[list[SearchResult], dict[str, int], list[dict]]:
+    """Collect with the neutral base queries; only when fewer than `target` posts are kept widen the search, at most two rounds.
+
+    Round 1 (no LLM): deeper result pages (2-5) for the base queries and period words (e.g. "2026년 8월") appended.
+    Round 2: issue + policy/life terms; a derived query whose fit is below MIN_FIT is discarded with its hits.
+    The target is never lowered: a short corpus is reported short. Returns (kept, dropped, per-query log)."""
+    seen: dict[str, tuple[bool, bool]] = {}
+    kept: list[SearchResult] = []
     dropped: Counter[str] = Counter()
-    kept = []
-    wanted = [_norm(t) for t in terms]
-    for r in hits:
-        text = _norm(f"{r.title} {r.snippet}")
-        if classify_period(r, issue.start_date, issue.end_date) is PeriodStatus.OUT_OF_PERIOD:
-            dropped["out_of_period"] += 1
-        elif noise_flags(r):
-            dropped["structural_noise"] += 1
-        elif not any(t in text for t in wanted):
-            dropped["no_issue_term"] += 1
-        else:
-            kept.append(r)  # undated hits stay: blogs/cafes often lack a reliable date
-    return kept, dict(dropped)
+    log: list[dict] = []
+
+    async def run(round_no: int, qs: list[str], pages=(1,), derived=False) -> dict:
+        stats, drop = await _collect(search, issue, qs, terms, seen, pages)
+        dropped.update(drop)
+        for q, st in stats.items():
+            fit = st["relevant"] / st["raw"] if st["raw"] else 0.0
+            discard = derived and st["raw"] >= MIN_FIT_SAMPLE and fit < MIN_FIT
+            if not discard:
+                kept.extend(st["kept"])
+            log.append({"round": round_no, "query": q, "pages": len(pages), "raw": st["raw"], "kept": 0 if discard else len(st["kept"]),
+                        "fit": round(fit, 2), "discarded": discard})
+        return stats
+
+    base = await run(0, queries)
+    if len(kept) >= target:
+        return kept, dict(dropped), log
+    await run(1, queries, pages=DEEP_PAGES)
+    if len(kept) < target:
+        await run(1, [f"{q} {w}" for q in queries[:2] for w in _period_words(issue)[:2]], derived=True)
+    if len(kept) >= target or qwen is None:
+        return kept, dict(dropped), log
+    try:
+        life = (await qwen.chat(LIFE_PROMPT, json.dumps({"issue": issue.issue, "region": issue.region}, ensure_ascii=False), LifeTerms)).terms
+    except Exception:  # noqa: BLE001 - widening is best effort; the run continues with what it has
+        logging.getLogger(__name__).warning("life-term generation failed", exc_info=True)
+        return kept, dict(dropped), log
+    policy = [t for t in [*(fact.organizations if fact else []), *(fact.locations if fact else [])] if t not in REGION_ALIASES.get(issue.region, [issue.region])]
+    extra = _clean_terms([*policy[:4], *life], issue, MAX_EXPANSION_QUERIES)
+    await run(2, [f"{queries[0]} {t}" for t in extra], derived=True)
+    return kept, dict(dropped), log
 
 
 def top_keywords(corpus: list[SearchResult], exclude: list[str], n: int = 15) -> list[KeywordCount]:

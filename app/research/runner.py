@@ -14,7 +14,7 @@ from app.research.review import ReviewSession, new_session, save_session
 from app.schemas.research import IssueInput, SearchPurpose
 from app.search.analyzer import analyze_results, select_for_fetch
 from app.search.fetcher import fetch_documents
-from app.search.opinion import build_queries, collect_corpus, find_reaction_candidates, key_terms
+from app.search.opinion import build_queries, collect_corpus_adaptive, find_reaction_candidates, key_terms
 from app.search.synthesizer import synthesize_facts
 
 
@@ -43,10 +43,10 @@ async def run_issue(qwen, search, issue: IssueInput, name: str, out_dir: Path, *
     fact_sources = {i: [relevant[i].title, relevant[i].original_url or relevant[i].url] for i in used if i in relevant}
 
     queries = build_queries(issue, fact)
-    corpus, dropped = await collect_corpus(search, issue, queries, key_terms(issue, plan.decomposition))
+    corpus, dropped, search_log = await collect_corpus_adaptive(search, issue, queries, key_terms(issue, plan.decomposition), qwen=qwen, fact=fact)
     found = await find_reaction_candidates(qwen, issue, queries, corpus, dropped, list(plan.protected_terms))
     session = new_session(issue, found, fact, fact_sources)
-    issue_corpus = build_corpus(issue, list(relevant.values()), fetched, found.discussion_posts)
+    issue_corpus = build_corpus(issue, list(relevant.values()), fetched, found.discussion_posts).model_copy(update={"search_log": search_log})
 
     out_dir.mkdir(parents=True, exist_ok=True)
     save_session(out_dir / f"session_{name}.json", session)

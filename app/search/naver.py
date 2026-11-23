@@ -17,8 +17,8 @@ class NaverSearchProvider(SearchProviderBase):
             "X-Naver-Client-Secret": client_secret,
         }
 
-    def _request(self, query, channel, limit, sort):
-        params = {"query": query, "display": limit}
+    def _request(self, query, channel, limit, sort, page=1):
+        params = {"query": query, "display": limit, "start": (page - 1) * limit + 1}
         if channel is not SearchChannel.WEB:  # webkr has no sort option
             params["sort"] = "sim" if sort == "accuracy" else "date"
         body = self._get(

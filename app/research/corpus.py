@@ -34,6 +34,7 @@ class IssueCorpus(SchemaBase):
     start_date: date
     end_date: date
     items: list[CorpusItem]
+    search_log: list[dict] = []  # per-query yield of the opinion search (raw hits, kept, fit, discarded)
 
 
 def build_corpus(

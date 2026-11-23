@@ -21,9 +21,9 @@ class SearchService:
     def __init__(self, naver: SearchProviderBase, daum: SearchProviderBase) -> None:
         self.providers = {"naver": naver, "daum": daum}
 
-    async def _run(self, plan, query: str, limit: int) -> list[SearchResult]:
+    async def _run(self, plan, query: str, limit: int, page: int = 1) -> list[SearchResult]:
         groups = await asyncio.gather(
-            *(self.providers[p].search(query, ch, limit, sort) for p, ch, sort in plan),
+            *(self.providers[p].search(query, ch, limit, sort, **({"page": page} if page > 1 else {})) for p, ch, sort in plan),
             return_exceptions=True,
         )
         results = []
@@ -38,5 +38,5 @@ class SearchService:
     async def search_fact(self, query: str, limit: int = 10) -> list[SearchResult]:
         return await self._run(FACT_PLAN, query, limit)
 
-    async def search_opinion(self, query: str, limit: int = 10) -> list[SearchResult]:
-        return await self._run(OPINION_PLAN, query, limit)
+    async def search_opinion(self, query: str, limit: int = 10, page: int = 1) -> list[SearchResult]:
+        return await self._run(OPINION_PLAN, query, limit, page)

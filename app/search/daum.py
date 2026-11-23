@@ -10,11 +10,11 @@ class DaumSearchProvider(SearchProviderBase):
     def __init__(self, api_key: str) -> None:
         self.headers = {"Authorization": f"KakaoAK {api_key}"}
 
-    def _request(self, query, channel, limit, sort):
+    def _request(self, query, channel, limit, sort, page=1):
         body = self._get(
             f"https://dapi.kakao.com/v2/search/{_ENDPOINTS[channel]}",
             headers=self.headers,
-            params={"query": query, "size": limit, "sort": sort},
+            params={"query": query, "size": limit, "sort": sort, "page": page},
         )
         return [
             SearchResult(

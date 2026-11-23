@@ -16,17 +16,19 @@ class SearchProviderBase(ABC):
     channels: frozenset[SearchChannel]
 
     @abstractmethod
-    def _request(self, query: str, channel: SearchChannel, limit: int, sort: str) -> list[SearchResult]:
+    def _request(self, query: str, channel: SearchChannel, limit: int, sort: str, page: int = 1) -> list[SearchResult]:
         """Blocking call; sort is "accuracy" or "recency"."""
 
     async def search(
-        self, query: str, channel: SearchChannel, limit: int = 10, sort: str = "accuracy"
+        self, query: str, channel: SearchChannel, limit: int = 10, sort: str = "accuracy", page: int = 1
     ) -> list[SearchResult]:
         if channel not in self.channels:
             raise ValueError(f"{type(self).__name__} does not support {channel.value}")
         if sort not in ("accuracy", "recency"):
             raise ValueError("sort must be 'accuracy' or 'recency'")
-        return await asyncio.to_thread(self._request, query, channel, limit, sort)
+        if page < 1:
+            raise ValueError("page must be >= 1")
+        return await asyncio.to_thread(self._request, query, channel, limit, sort, page)
 
     @staticmethod
     def _get(url: str, **kwargs) -> dict:

@@ -64,9 +64,9 @@ def wired(monkeypatch):
 
     post = _hit(9, C.BLOG)
 
-    async def collect_corpus(search, issue, queries, terms):
+    async def collect_corpus_adaptive(search, issue, queries, terms, *, qwen=None, fact=None):
         calls.corpus_terms = terms
-        return [post], {"no_issue_term": 1}
+        return [post], {"no_issue_term": 1}, [{"round": 0, "query": "반응 질의", "raw": 1, "kept": 1}]
 
     async def find_reaction_candidates(qwen, issue, queries, corpus, filtered_out, exclude):
         calls.exclude = exclude
@@ -76,7 +76,7 @@ def wired(monkeypatch):
 
     monkeypatch.setattr(runner, "fetch_documents", fetch_documents)
     monkeypatch.setattr(runner, "synthesize_facts", synthesize_facts)
-    monkeypatch.setattr(runner, "collect_corpus", collect_corpus)
+    monkeypatch.setattr(runner, "collect_corpus_adaptive", collect_corpus_adaptive)
     monkeypatch.setattr(runner, "find_reaction_candidates", find_reaction_candidates)
     monkeypatch.setattr(runner, "build_queries", lambda issue, fact: ["반응 질의"])
     monkeypatch.setattr(runner, "key_terms", lambda issue, decomposition: ["석탄화력"])
@@ -92,6 +92,7 @@ def test_runner_saves_session_and_a_corpus_of_the_relevant_hits_only(wired, tmp_
     ids = {i.result_id: i for i in corpus.items}
     assert set(ids) == {a.result_id, b.result_id, wired.post.result_id}       # c was judged not relevant; a found by two queries appears once
     assert ids[a.result_id].kind == "FACT" and ids[a.result_id].body == "본문 제목1" and ids[wired.post.result_id].kind == "OPINION"
+    assert corpus.search_log == [{"round": 0, "query": "반응 질의", "raw": 1, "kept": 1}]
     assert session.fact_sources == {a.result_id: ["제목1", a.url], b.result_id: ["제목2", b.url]}
 
 
